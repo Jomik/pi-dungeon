@@ -39,28 +39,22 @@ npx gondolin build --config build-config.json --output ./image
 
 ## Credentials
 
-Tokens are stored in the macOS Keychain under service `pi-gondolin`:
+Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accounts to look up and how to format them is entirely driven by `config.json` — no code changes needed to add a new secret.
 
 ```bash
 # GitHub PAT (scoped for pi — separate from `gh auth`)
 security add-generic-password -s "pi-gondolin" -a "github" -w "<token>" -U
 
-# Atlassian API token
+# Atlassian: store email and API token separately
+security add-generic-password -s "pi-gondolin" -a "atlassian-email" -w "<email>" -U
 security add-generic-password -s "pi-gondolin" -a "atlassian" -w "<token>" -U
 ```
-
-Stored as **raw tokens**. The extension handles formatting:
-
-| Account | Stored | Injected as |
-|---------|--------|-------------|
-| `github` | Raw PAT (`ghp_...`) | As-is in `Authorization` header |
-| `atlassian` | Raw API token | `Basic <base64(email:token)>` |
 
 To rotate, re-run the `security add-generic-password` command with `-U` (update).
 
 ## Local config (`config.json`)
 
-An optional `config.json` file in the extension directory lets you add site-specific allowed hosts and secret mappings without modifying tracked files. It is listed in `.gitignore` and never committed.
+`config.json` in the extension directory drives allowed hosts **and** secret injection. It is listed in `.gitignore` and never committed.
 
 **Format:**
 
@@ -71,17 +65,25 @@ An optional `config.json` file in the extension directory lets you add site-spec
     "internal.company.io"
   ],
   "secrets": {
+    "GH_TOKEN": {
+      "keychain": "github",
+      "hosts": ["api.github.com", "github.com"]
+    },
     "ATLASSIAN_TOKEN": {
+      "keychain": ["atlassian-email", "atlassian"],
+      "format": "basic-auth",
       "hosts": ["example.atlassian.net"]
     }
   }
 }
 ```
 
-- `allowedHosts` — appended to the built-in allowlist passed to `createHttpHooks`.
-- `secrets.ATLASSIAN_TOKEN.hosts` — controls which hosts receive the `ATLASSIAN_TOKEN` header. If this key is absent the token is **not** injected (safe default).
+- `allowedHosts` — appended to the built-in allowlist (GitHub, npm, NuGet).
+- `secrets.<NAME>.keychain` — keychain account name, or an array of names.
+- `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
+- `secrets.<NAME>.format` — optional. `"basic-auth"` combines two keychain values as `Basic base64(val1:val2)`. Omit for raw token injection.
 
-The file at `~/.pi/pi-gondolin/config.json` already exists with LEGO-specific values as a starting point.
+If any keychain lookup fails for a secret, that secret is silently skipped (safe default).
 
 ## Usage
 

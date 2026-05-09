@@ -8,7 +8,7 @@
  * - Workspace mounted read-write via RealFSProvider
  * - ~/.pi/agent/skills and ~/.pi/agent/agents mounted for live persistence
  * - Network policy: GitHub API, npm, plus extra hosts from config.json
- * - Secret injection: GH_TOKEN, ATLASSIAN_TOKEN
+ * - Secret injection: driven by config.json (keychain-backed)
  * - SSH egress: github.com (uses host SSH agent)
  */
 
@@ -259,14 +259,16 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.theme.fg("accent", "Gondolin: starting VM..."),
       );
 
-      // Get tokens for secret injection
-      const ghToken = getGhToken();
-      const atlassianToken = getAtlassianToken();
-
       // Load optional user-specific config (gitignored)
+      interface SecretConfig {
+        keychain: string | string[];  // keychain account name(s)
+        hosts: string[];              // hosts that receive this secret
+        format?: "basic-auth";        // optional: "basic-auth" = Basic base64(val1:val2)
+      }
+
       interface GondolinConfig {
         allowedHosts?: string[];
-        secrets?: Record<string, { hosts: string[] }>;
+        secrets?: Record<string, SecretConfig>;
       }
 
       let userConfig: GondolinConfig = {};
@@ -276,6 +278,26 @@ export default function (pi: ExtensionAPI) {
         userConfig = JSON.parse(configText);
       } catch {
         // No config file or invalid — use defaults only
+      }
+
+      // Resolve secrets from config
+      const resolvedSecrets: Record<string, { hosts: string[]; value: string }> = {};
+      if (userConfig.secrets) {
+        for (const [name, cfg] of Object.entries(userConfig.secrets)) {
+          const accounts = Array.isArray(cfg.keychain) ? cfg.keychain : [cfg.keychain];
+          const values = accounts.map(a => keychainGet(a));
+          if (values.some(v => v === undefined)) continue; // skip if any keychain lookup fails
+
+          let value: string;
+          if (cfg.format === "basic-auth") {
+            if (values.length !== 2) continue; // basic-auth requires exactly 2 values
+            value = `Basic ${Buffer.from(`${values[0]}:${values[1]}`).toString("base64")}`;
+          } else {
+            value = values[0]!;
+          }
+
+          resolvedSecrets[name] = { hosts: cfg.hosts, value };
+        }
       }
 
       const { httpHooks, env } = createHttpHooks({
@@ -295,24 +317,7 @@ export default function (pi: ExtensionAPI) {
           "*.blob.core.windows.net",
           ...(userConfig.allowedHosts ?? []),
         ],
-        secrets: {
-          ...(ghToken
-            ? {
-                GH_TOKEN: {
-                  hosts: ["api.github.com", "github.com"],
-                  value: ghToken,
-                },
-              }
-            : {}),
-          ...(atlassianToken && userConfig.secrets?.ATLASSIAN_TOKEN
-            ? {
-                ATLASSIAN_TOKEN: {
-                  hosts: userConfig.secrets.ATLASSIAN_TOKEN.hosts,
-                  value: atlassianToken,
-                },
-              }
-            : {}),
-        },
+        secrets: resolvedSecrets,
       });
 
       // Ensure host directories for read-only mounts exist
@@ -422,18 +427,6 @@ export default function (pi: ExtensionAPI) {
     } catch {
       return undefined;
     }
-  }
-
-  function getGhToken(): string | undefined {
-    return keychainGet("github");
-  }
-
-  function getAtlassianToken(): string | undefined {
-    const token = keychainGet("atlassian");
-    if (!token) return undefined;
-    const email = keychainGet("atlassian-email");
-    if (!email) return undefined;
-    return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
   }
 
   pi.on("session_start", async (_event, ctx) => {
