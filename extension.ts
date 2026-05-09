@@ -261,9 +261,8 @@ export default function (pi: ExtensionAPI) {
 
       // Load optional user-specific config (gitignored)
       interface SecretConfig {
-        keychain: string | string[];  // keychain account name(s)
-        hosts: string[];              // hosts that receive this secret
-        format?: "basic-auth";        // optional: "basic-auth" = Basic base64(val1:val2)
+        keychain: string;   // keychain account name
+        hosts: string[];    // hosts that receive this secret
       }
 
       interface GondolinConfig {
@@ -284,18 +283,8 @@ export default function (pi: ExtensionAPI) {
       const resolvedSecrets: Record<string, { hosts: string[]; value: string }> = {};
       if (userConfig.secrets) {
         for (const [name, cfg] of Object.entries(userConfig.secrets)) {
-          const accounts = Array.isArray(cfg.keychain) ? cfg.keychain : [cfg.keychain];
-          const values = accounts.map(a => keychainGet(a));
-          if (values.some(v => v === undefined)) continue; // skip if any keychain lookup fails
-
-          let value: string;
-          if (cfg.format === "basic-auth") {
-            if (values.length !== 2) continue; // basic-auth requires exactly 2 values
-            value = `Basic ${Buffer.from(`${values[0]}:${values[1]}`).toString("base64")}`;
-          } else {
-            value = values[0]!;
-          }
-
+          const value = keychainGet(cfg.keychain);
+          if (!value) continue;
           resolvedSecrets[name] = { hosts: cfg.hosts, value };
         }
       }

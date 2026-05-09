@@ -45,9 +45,9 @@ Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accou
 # GitHub PAT (scoped for pi — separate from `gh auth`)
 security add-generic-password -s "pi-gondolin" -a "github" -w "<token>" -U
 
-# Atlassian: store email and API token separately
-security add-generic-password -s "pi-gondolin" -a "atlassian-email" -w "<email>" -U
-security add-generic-password -s "pi-gondolin" -a "atlassian" -w "<token>" -U
+# Atlassian: store the pre-formatted Basic auth value
+printf 'Basic %s' "$(echo -n 'user@example.com:api-token' | base64)" | \
+  xargs -I{} security add-generic-password -s "pi-gondolin" -a "atlassian" -w '{}' -U
 ```
 
 To rotate, re-run the `security add-generic-password` command with `-U` (update).
@@ -70,8 +70,7 @@ To rotate, re-run the `security add-generic-password` command with `-U` (update)
       "hosts": ["api.github.com", "github.com"]
     },
     "ATLASSIAN_TOKEN": {
-      "keychain": ["atlassian-email", "atlassian"],
-      "format": "basic-auth",
+      "keychain": "atlassian",
       "hosts": ["example.atlassian.net"]
     }
   }
@@ -79,11 +78,12 @@ To rotate, re-run the `security add-generic-password` command with `-U` (update)
 ```
 
 - `allowedHosts` — appended to the built-in allowlist (GitHub, npm, NuGet).
-- `secrets.<NAME>.keychain` — keychain account name, or an array of names.
+- `secrets.<NAME>.keychain` — keychain account name (single string).
 - `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
-- `secrets.<NAME>.format` — optional. `"basic-auth"` combines two keychain values as `Basic base64(val1:val2)`. Omit for raw token injection.
 
-If any keychain lookup fails for a secret, that secret is silently skipped (safe default).
+The keychain value is injected as-is. For Basic auth, store the pre-formatted value (e.g. `Basic dXNlcjp0b2tlbg==`) in the keychain.
+
+If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
 
 ## Usage
 
