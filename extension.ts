@@ -14,7 +14,9 @@
 
 import path from "node:path";
 import os from "node:os";
-import { execSync, fork } from "node:child_process";
+import fs from "node:fs";
+import crypto from "node:crypto";
+import { execSync, execFileSync, fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -39,6 +41,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GUEST_PI_AGENT = "/root/.pi/agent";
 const GUEST_JJ_CONFIG = "/root/.config/jj";
 const GUEST_GITHUB_REPOS = "/tmp/pi-github-repos";
+const OBSIDIAN_BRIDGE_PORT = 57843;
+const KEYCHAIN_SERVICE = "pi-gondolin";
 
 interface SecretConfig {
   keychain: string;   // keychain account name
@@ -51,11 +55,11 @@ interface GondolinConfig {
   mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
 }
 
-function mergeConfigs(global: GondolinConfig, project: GondolinConfig): GondolinConfig {
+function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig): GondolinConfig {
   return {
-    allowedHosts: [...(global.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
-    secrets: { ...(global.secrets ?? {}), ...(project.secrets ?? {}) },
-    mounts: { ...(global.mounts ?? {}), ...(project.mounts ?? {}) },
+    allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
+    secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
+    mounts: { ...(globalCfg.mounts ?? {}), ...(project.mounts ?? {}) },
   };
 }
 
@@ -68,7 +72,7 @@ interface PathMapping {
   guestDir: string;
 }
 
-function computeGuestWorkspace(localCwd: string, _home: string): string {
+function computeGuestWorkspace(localCwd: string): string {
   // Mount at the same absolute path so host-path-based configs (e.g.
   // jj --when.repositories = ["~/projects/work"]) resolve correctly
   // inside the sandbox where ~ expands to the host home dir.
@@ -194,7 +198,6 @@ function sanitizeEnv(
 function createGondolinBashOps(
   vm: VM,
   mappings: PathMapping[],
-  localCwd: string,
 ): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout, env }) => {
@@ -243,7 +246,7 @@ function createGondolinBashOps(
 export default function (pi: ExtensionAPI) {
   const localCwd = process.cwd();
   const home = os.homedir();
-  const GUEST_WORKSPACE = computeGuestWorkspace(localCwd, home);
+  const GUEST_WORKSPACE = computeGuestWorkspace(localCwd);
   const mappings = createPathMappings(localCwd, GUEST_WORKSPACE);
 
   const localRead = createReadTool(localCwd);
@@ -256,7 +259,7 @@ export default function (pi: ExtensionAPI) {
 
   function ensureBridge() {
     try {
-      execSync("lsof -i :57843", { stdio: "pipe" });
+      execSync(`lsof -i :${OBSIDIAN_BRIDGE_PORT}`, { stdio: "pipe" });
       return; // already running
     } catch {
       // not running, start it
@@ -279,7 +282,6 @@ export default function (pi: ExtensionAPI) {
       );
 
       // Load global config (~/.pi/agent/gondolin.json)
-      const fs = await import("node:fs");
       let globalConfig: GondolinConfig = {};
       try {
         const globalConfigPath = path.join(os.homedir(), ".pi/agent/gondolin.json");
@@ -317,19 +319,19 @@ export default function (pi: ExtensionAPI) {
       // Ensure host directories for read-only mounts exist
       fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
 
-      const crypto = await import("node:crypto");
       const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
       const cacheDir = path.join(home, ".cache/pi-gondolin/node_modules", cwdHash);
       fs.mkdirSync(cacheDir, { recursive: true });
 
       // Build additional VFS mounts and path mappings from merged config
+      const pendingMappings: { hostDir: string; guestDir: string }[] = [];
       const projectMounts: Record<string, VirtualProvider> = {};
       if (config.mounts) {
         for (const [guestPath, cfg] of Object.entries(config.mounts)) {
           const hostPath = cfg.path.replace(/^~/, home);
           const provider = new RealFSProvider(hostPath);
           projectMounts[guestPath] = cfg.mode === "rw" ? provider : new ReadonlyProvider(provider);
-          mappings.push({ hostDir: hostPath, guestDir: guestPath });
+          pendingMappings.push({ hostDir: hostPath, guestDir: guestPath });
         }
       }
 
@@ -349,7 +351,7 @@ export default function (pi: ExtensionAPI) {
           knownHostsFile: path.join(home, ".ssh/known_hosts"),
         },
         tcp: {
-          hosts: { "obsidian-bridge:57843": "127.0.0.1:57843" },
+          hosts: { [`obsidian-bridge:${OBSIDIAN_BRIDGE_PORT}`]: `127.0.0.1:${OBSIDIAN_BRIDGE_PORT}` },
         },
         vfs: {
           mounts: {
@@ -372,12 +374,22 @@ export default function (pi: ExtensionAPI) {
         },
       });
 
-      vm = created;
-
       // Disable host-key checking for SSH-allowed hosts inside the guest.
       // Gondolin's SSH proxy presents its own host key, which won't match
       // the real github.com key the guest might expect.
-      await created.exec(["/bin/sh", "-c", [
+      let pubkeyLines: string[] = [];
+      try {
+        const pubkey = fs.readFileSync(path.join(home, ".ssh/id_ed25519_private.pub"), "utf8").trim();
+        pubkeyLines = [
+          `cat > /root/.ssh/id_ed25519_private.pub << 'SSHPUB'`,
+          pubkey,
+          "SSHPUB",
+        ];
+      } catch {
+        // pubkey file not found — skip injection
+      }
+
+      const sshResult = await created.exec(["/bin/sh", "-c", [
         "mkdir -p /root/.ssh",
         "chmod 700 /root/.ssh",
         "cat > /root/.ssh/config << 'SSHCFG'",
@@ -387,20 +399,20 @@ export default function (pi: ExtensionAPI) {
         "SSHCFG",
         "chmod 600 /root/.ssh/config",
         // Inject SSH signing pubkey so jj/git can sign commits via the forwarded agent
-        `cat > /root/.ssh/id_ed25519_private.pub << 'SSHPUB'`,
-        fs.readFileSync(path.join(home, ".ssh/id_ed25519_private.pub"), "utf8").trim(),
-        "SSHPUB",
+        ...pubkeyLines,
         // Point jj at the mounted host config
         "echo 'export JJ_CONFIG=/root/.config/jj' > /etc/profile.d/jj.sh",
       ].join("\n")]);
+      if (!sshResult.ok) throw new Error(`SSH setup failed (${sshResult.exitCode}): ${sshResult.stderr}`);
+
 
       // Install obsidian CLI shim in the VM
-      await created.exec(["/bin/sh", "-c", [
+      const shimResult = await created.exec(["/bin/sh", "-c", [
         "cat > /usr/local/bin/obsidian << 'SHIM'",
         "#!/usr/bin/env node",
         "const http = require('http');",
         "const payload = JSON.stringify({argv: process.argv.slice(2), tty: false, cwd: process.cwd()});",
-        "const req = http.request({hostname: 'obsidian-bridge', port: 57843, method: 'POST'}, res => {",
+        `const req = http.request({hostname: 'obsidian-bridge', port: ${OBSIDIAN_BRIDGE_PORT}, method: 'POST'}, res => {`,
         "  res.on('data', c => process.stdout.write(c));",
         "  res.on('end', () => process.exit(res.statusCode === 200 ? 0 : 1));",
         "});",
@@ -409,6 +421,12 @@ export default function (pi: ExtensionAPI) {
         "SHIM",
         "chmod +x /usr/local/bin/obsidian",
       ].join("\n")]);
+      if (!shimResult.ok) throw new Error(`Obsidian shim install failed (${shimResult.exitCode}): ${shimResult.stderr}`);
+
+      // All setup complete — commit state atomically
+      for (const m of pendingMappings) mappings.push(m);
+      vm = created;
+
       ctx?.ui.setStatus(
         "gondolin",
         ctx.ui.theme.fg("accent", "Gondolin: running"),
@@ -425,8 +443,9 @@ export default function (pi: ExtensionAPI) {
 
   function keychainGet(account: string): string | undefined {
     try {
-      return execSync(
-        `security find-generic-password -s "pi-gondolin" -a "${account}" -w`,
+      return execFileSync(
+        "security",
+        ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"],
         { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
       ).trim();
     } catch {
@@ -493,7 +512,7 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const activeVm = await ensureVm(ctx);
       const tool = createBashTool(localCwd, {
-        operations: createGondolinBashOps(activeVm, mappings, localCwd),
+        operations: createGondolinBashOps(activeVm, mappings),
       });
       return tool.execute(id, params, signal, onUpdate);
     },
@@ -501,7 +520,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("user_bash", async (_event, _ctx) => {
     const activeVm = await ensureVm();
-    return { operations: createGondolinBashOps(activeVm, mappings, localCwd) };
+    return { operations: createGondolinBashOps(activeVm, mappings) };
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
