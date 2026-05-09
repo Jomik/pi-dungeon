@@ -77,7 +77,7 @@ To rotate, re-run the `security add-generic-password` command with `-U` (update)
 }
 ```
 
-- `allowedHosts` — appended to the built-in allowlist (GitHub, npm, NuGet).
+- `allowedHosts` — full list of hosts the VM may reach. There is no built-in allowlist; every allowed host must appear here.
 - `secrets.<NAME>.keychain` — keychain account name (single string).
 - `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
 
@@ -104,14 +104,7 @@ pi -e ~/.pi/pi-gondolin
 
 ## Network policy
 
-| Destination | Access |
-|-------------|--------|
-| `api.github.com`, `github.com`, `*.github.com` | HTTPS (GH_TOKEN injected) |
-| `objects.githubusercontent.com`, `github-releases.githubusercontent.com` | HTTPS (release downloads) |
-| `github.com:22` | SSH egress (host agent forwarded) |
-| `registry.npmjs.org`, `*.npmjs.org` | HTTPS |
-| `legogroup.atlassian.net` | HTTPS (ATLASSIAN_TOKEN injected) |
-| `baseplate.legogroup.io` | HTTPS |
+All allowed HTTPS hosts are listed in `config.json` under `allowedHosts`. There is no built-in allowlist — the config is the single source of truth. SSH egress is separately controlled (`github.com:22`, proxied through the host agent).
 
 All other network access is denied. DNS is synthetic (no DNS tunneling).
 

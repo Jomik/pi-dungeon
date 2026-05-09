@@ -7,7 +7,7 @@
  * Features:
  * - Workspace mounted read-write via RealFSProvider
  * - ~/.pi/agent/skills and ~/.pi/agent/agents mounted for live persistence
- * - Network policy: GitHub API, npm, plus extra hosts from config.json
+ * - Network policy: driven entirely by config.json allowedHosts
  * - Secret injection: driven by config.json (keychain-backed)
  * - SSH egress: github.com (uses host SSH agent)
  */
@@ -290,22 +290,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const { httpHooks, env } = createHttpHooks({
-        allowedHosts: [
-          "api.github.com",
-          "github.com",
-          "*.github.com",
-          "objects.githubusercontent.com",
-          "github-releases.githubusercontent.com",
-          "registry.npmjs.org",
-          "*.npmjs.org",
-          "api.nuget.org",
-          "*.nuget.org",
-          "builds.dotnet.microsoft.com",
-          "dotnet.microsoft.com",
-          "learn.microsoft.com",
-          "*.blob.core.windows.net",
-          ...(userConfig.allowedHosts ?? []),
-        ],
+        allowedHosts: userConfig.allowedHosts ?? [],
         secrets: resolvedSecrets,
       });
 
