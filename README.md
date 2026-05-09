@@ -58,6 +58,31 @@ Stored as **raw tokens**. The extension handles formatting:
 
 To rotate, re-run the `security add-generic-password` command with `-U` (update).
 
+## Local config (`config.json`)
+
+An optional `config.json` file in the extension directory lets you add site-specific allowed hosts and secret mappings without modifying tracked files. It is listed in `.gitignore` and never committed.
+
+**Format:**
+
+```json
+{
+  "allowedHosts": [
+    "example.atlassian.net",
+    "internal.company.io"
+  ],
+  "secrets": {
+    "ATLASSIAN_TOKEN": {
+      "hosts": ["example.atlassian.net"]
+    }
+  }
+}
+```
+
+- `allowedHosts` — appended to the built-in allowlist passed to `createHttpHooks`.
+- `secrets.ATLASSIAN_TOKEN.hosts` — controls which hosts receive the `ATLASSIAN_TOKEN` header. If this key is absent the token is **not** injected (safe default).
+
+The file at `~/.pi/pi-gondolin/config.json` already exists with LEGO-specific values as a starting point.
+
 ## Usage
 
 ```bash

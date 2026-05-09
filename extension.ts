@@ -7,7 +7,7 @@
  * Features:
  * - Workspace mounted read-write via RealFSProvider
  * - ~/.pi/agent/skills and ~/.pi/agent/agents mounted for live persistence
- * - Network policy: GitHub API, npm, Atlassian, baseplate
+ * - Network policy: GitHub API, npm, plus extra hosts from config.json
  * - Secret injection: GH_TOKEN, ATLASSIAN_TOKEN
  * - SSH egress: github.com (uses host SSH agent)
  */
@@ -263,6 +263,21 @@ export default function (pi: ExtensionAPI) {
       const ghToken = getGhToken();
       const atlassianToken = getAtlassianToken();
 
+      // Load optional user-specific config (gitignored)
+      interface GondolinConfig {
+        allowedHosts?: string[];
+        secrets?: Record<string, { hosts: string[] }>;
+      }
+
+      let userConfig: GondolinConfig = {};
+      try {
+        const configPath = path.join(__dirname, "config.json");
+        const configText = await import("node:fs").then(fs => fs.readFileSync(configPath, "utf-8"));
+        userConfig = JSON.parse(configText);
+      } catch {
+        // No config file or invalid — use defaults only
+      }
+
       const { httpHooks, env } = createHttpHooks({
         allowedHosts: [
           "api.github.com",
@@ -278,6 +293,7 @@ export default function (pi: ExtensionAPI) {
           "dotnet.microsoft.com",
           "learn.microsoft.com",
           "*.blob.core.windows.net",
+          ...(userConfig.allowedHosts ?? []),
         ],
         secrets: {
           ...(ghToken
@@ -288,10 +304,10 @@ export default function (pi: ExtensionAPI) {
                 },
               }
             : {}),
-          ...(atlassianToken
+          ...(atlassianToken && userConfig.secrets?.ATLASSIAN_TOKEN
             ? {
                 ATLASSIAN_TOKEN: {
-                  hosts: ["legogroup.atlassian.net"],
+                  hosts: userConfig.secrets.ATLASSIAN_TOKEN.hosts,
                   value: atlassianToken,
                 },
               }
