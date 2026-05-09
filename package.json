@@ -1,0 +1,24 @@
+{
+  "name": "pi-gondolin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gondolin sandbox extension for pi — runs agent tools inside a micro-VM",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./extension.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  },
+  "dependencies": {
+    "@earendil-works/gondolin": "^0.9.0"
+  },
+  "scripts": {
+    "build": "npx gondolin build --config build-config.json --output ./image"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0"
+  }
+}
