@@ -32,7 +32,7 @@ import {
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
 
-import { VM, RealFSProvider, ReadonlyProvider, ShadowProvider, createHttpHooks, createShadowPathPredicate } from "@earendil-works/gondolin";
+import { VM, RealFSProvider, ReadonlyProvider, ShadowProvider, createHttpHooks, createShadowPathPredicate, type VirtualProvider } from "@earendil-works/gondolin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -303,6 +303,30 @@ export default function (pi: ExtensionAPI) {
       const cacheDir = path.join(home, ".cache/pi-gondolin/node_modules", cwdHash);
       fs.mkdirSync(cacheDir, { recursive: true });
 
+      // Load per-project config (.pi/gondolin.json in workspace root)
+      interface ProjectConfig {
+        mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
+      }
+      let projectConfig: ProjectConfig = {};
+      try {
+        const projectConfigPath = path.join(localCwd, ".pi/gondolin.json");
+        const projectConfigText = fs.readFileSync(projectConfigPath, "utf-8");
+        projectConfig = JSON.parse(projectConfigText);
+      } catch {
+        // No project config — use defaults only
+      }
+
+      // Build additional VFS mounts and path mappings from per-project config
+      const projectMounts: Record<string, VirtualProvider> = {};
+      if (projectConfig.mounts) {
+        for (const [guestPath, cfg] of Object.entries(projectConfig.mounts)) {
+          const hostPath = cfg.path.replace(/^~/, home);
+          const provider = new RealFSProvider(hostPath);
+          projectMounts[guestPath] = cfg.mode === "rw" ? provider : new ReadonlyProvider(provider);
+          mappings.push({ hostDir: hostPath, guestDir: guestPath });
+        }
+      }
+
       const created = await VM.create({
         httpHooks,
         env,
@@ -323,10 +347,11 @@ export default function (pi: ExtensionAPI) {
         },
         vfs: {
           mounts: {
+            ...projectMounts,
             [GUEST_WORKSPACE]: new ShadowProvider(
               new RealFSProvider(localCwd),
               {
-                shouldShadow: createShadowPathPredicate(["/node_modules"]),
+                shouldShadow: createShadowPathPredicate(["/node_modules", "/.pi/gondolin.json"]),
                 writeMode: "tmpfs",
                 tmpfs: new RealFSProvider(cacheDir),
               },

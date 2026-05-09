@@ -85,6 +85,32 @@ The keychain value is injected as-is via placeholder replacement. Store raw toke
 
 If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
 
+## Per-project config (`.pi/gondolin.json`)
+
+Place a `.pi/gondolin.json` file in the workspace root to mount additional host directories into the VM for that project.
+
+**Format:**
+
+```json
+{
+  "mounts": {
+    "/shared-libs": { "path": "~/code/shared-libs", "mode": "ro" },
+    "/other-repo":  { "path": "~/code/other-repo",  "mode": "rw" }
+  }
+}
+```
+
+- Keys are **absolute guest paths** where the directory will appear inside the VM.
+- `path` — host path; supports `~` expansion.
+- `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
+
+The `.pi` directory itself is **shadowed** from the sandbox — the VM cannot see or modify `.pi/gondolin.json` or anything else under `.pi/`.
+
+**Example use cases:**
+
+- Mount a shared-library monorepo read-only so the agent can browse and link against it without being able to modify it.
+- Mount a sibling repo read-write when the task requires coordinated changes across two projects.
+
 ## Usage
 
 ```bash
