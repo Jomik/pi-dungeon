@@ -15,9 +15,9 @@ Gondolin sandbox extension for [pi](https://github.com/badlogic/pi-mono). Runs a
 Host (trusted)                    Gondolin VM (sandboxed)
 ─────────────────                 ──────────────────────
 pi process                        bash/read/write/edit execution
-├─ LLM calls (Copilot)           ├─ /workspace (← project dir)
-├─ extensions                     ├─ /home/agent/.pi/agent/skills (← host)
-├─ credentials (keychain)         ├─ /home/agent/.pi/agent/agents (← host)
+├─ LLM calls (Copilot)           ├─ $CWD (← project dir, same path as host)
+├─ extensions                     ├─ /root/.pi/agent (← host ~/.pi/agent)
+├─ credentials (keychain)         ├─ /root/.config/jj (← host ~/.config/jj, read-only)
 └─ skill/agent reads              └─ tools: rg, fd, jj, gh, git, node
 ```
 
@@ -146,9 +146,10 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 
 | Guest path | Host path | Mode |
 |------------|-----------|------|
-| `/workspace` | `$CWD` | read-write |
-| `/home/agent/.pi/agent/skills` | `~/.pi/agent/skills` | read-write |
-| `/home/agent/.pi/agent/agents` | `~/.pi/agent/agents` | read-write |
+| `$CWD` | `$CWD` | read-write (ShadowProvider; `/node_modules` and `/.pi/gondolin.json` shadowed) |
+| `/root/.pi/agent` | `~/.pi/agent` | read-write (ShadowProvider; `/auth.json` and `/sessions` shadowed) |
+| `/root/.config/jj` | `~/.config/jj` | read-only |
+| `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |
 
 Additional mounts are configured via `mounts` in global or per-project config.
 

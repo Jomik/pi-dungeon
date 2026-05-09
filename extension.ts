@@ -6,7 +6,7 @@
  *
  * Features:
  * - Workspace mounted read-write via RealFSProvider
- * - ~/.pi/agent/skills and ~/.pi/agent/agents mounted for live persistence
+ * - ~/.pi/agent mounted at /root/.pi/agent for live skill/agent persistence
  * - Network policy: driven entirely by config.json allowedHosts
  * - Secret injection: driven by config.json (keychain-backed)
  * - SSH egress: github.com (uses host SSH agent)
@@ -55,7 +55,7 @@ interface GondolinConfig {
   mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
 }
 
-function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig): GondolinConfig {
+export function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig): GondolinConfig {
   return {
     allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
     secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
@@ -63,7 +63,7 @@ function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig): Gondo
   };
 }
 
-function shQuote(value: string): string {
+export function shQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''" ) + "'";
 }
 
@@ -79,7 +79,7 @@ function computeGuestWorkspace(localCwd: string): string {
   return localCwd;
 }
 
-function createPathMappings(localCwd: string, guestWorkspace: string): PathMapping[] {
+export function createPathMappings(localCwd: string, guestWorkspace: string): PathMapping[] {
   const home = os.homedir();
   return [
     { hostDir: localCwd, guestDir: guestWorkspace },
@@ -88,7 +88,7 @@ function createPathMappings(localCwd: string, guestWorkspace: string): PathMappi
   ];
 }
 
-function toGuestPath(mappings: PathMapping[], localPath: string): string {
+export function toGuestPath(mappings: PathMapping[], localPath: string): string {
   for (const { hostDir, guestDir } of mappings) {
     if (localPath === hostDir) return guestDir;
     const rel = path.relative(hostDir, localPath);
