@@ -277,8 +277,6 @@ export default function (pi: ExtensionAPI) {
           "builds.dotnet.microsoft.com",
           "dotnet.microsoft.com",
           "learn.microsoft.com",
-          "legogroup.atlassian.net",
-          "baseplate.legogroup.io",
           "*.blob.core.windows.net",
         ],
         secrets: {
@@ -417,7 +415,8 @@ export default function (pi: ExtensionAPI) {
   function getAtlassianToken(): string | undefined {
     const token = keychainGet("atlassian");
     if (!token) return undefined;
-    const email = keychainGet("atlassian-email") ?? "jonas.holst.damtoft@lego.com";
+    const email = keychainGet("atlassian-email");
+    if (!email) return undefined;
     return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
   }
 
