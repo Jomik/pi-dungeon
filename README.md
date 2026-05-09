@@ -45,8 +45,8 @@ Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accou
 # GitHub PAT (scoped for pi — separate from `gh auth`)
 security add-generic-password -s "pi-gondolin" -a "github" -w "<token>" -U
 
-# Atlassian: store the pre-formatted Basic auth value
-printf 'Basic %s' "$(echo -n 'user@example.com:api-token' | base64)" | \
+# Atlassian: store base64-encoded credentials (guest adds Basic/Bearer prefix)
+echo -n 'user@example.com:api-token' | base64 | \
   xargs -I{} security add-generic-password -s "pi-gondolin" -a "atlassian" -w '{}' -U
 ```
 
@@ -81,7 +81,7 @@ To rotate, re-run the `security add-generic-password` command with `-U` (update)
 - `secrets.<NAME>.keychain` — keychain account name (single string).
 - `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
 
-The keychain value is injected as-is. For Basic auth, store the pre-formatted value (e.g. `Basic dXNlcjp0b2tlbg==`) in the keychain.
+The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
 
 If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
 
@@ -110,7 +110,7 @@ pi -e ~/.pi/pi-gondolin
 | `objects.githubusercontent.com`, `github-releases.githubusercontent.com` | HTTPS (release downloads) |
 | `github.com:22` | SSH egress (host agent forwarded) |
 | `registry.npmjs.org`, `*.npmjs.org` | HTTPS |
-| `legogroup.atlassian.net` | HTTPS (ATLASSIAN_TOKEN injected as Basic auth) |
+| `legogroup.atlassian.net` | HTTPS (ATLASSIAN_TOKEN injected) |
 | `baseplate.legogroup.io` | HTTPS |
 
 All other network access is denied. DNS is synthetic (no DNS tunneling).
