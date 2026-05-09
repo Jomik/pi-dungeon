@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/earendil-works/pi-gondolin/gondolin.schema.json",
+  "title": "Gondolin Config",
+  "description": "Configuration for the pi-gondolin sandbox extension. Used at ~/.pi/agent/gondolin.json (global) and <project>/.pi/gondolin.json (per-project).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference (ignored at runtime)."
+    },
+    "allowedHosts": {
+      "type": "array",
+      "description": "Hostnames the sandbox is allowed to reach over HTTPS. Supports wildcards (e.g. \"*.github.com\"). Global and per-project lists are concatenated.",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Secrets injected into matching HTTP requests via placeholder replacement. Each key is a secret name (e.g. GH_TOKEN). The guest references it as $GH_TOKEN in headers. Global and per-project are merged; per-project wins on key conflict.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["keychain", "hosts"],
+        "additionalProperties": false,
+        "properties": {
+          "keychain": {
+            "type": "string",
+            "description": "macOS Keychain account name under service \"pi-gondolin\"."
+          },
+          "hosts": {
+            "type": "array",
+            "description": "Hosts that receive this secret value.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "mounts": {
+      "type": "object",
+      "description": "Additional host directories mounted into the VM. Each key is an absolute guest path. Global and per-project are merged; per-project wins on key conflict.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Host path. Supports ~ for home directory."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["ro", "rw"],
+            "default": "ro",
+            "description": "Mount mode. Defaults to read-only."
+          }
+        }
+      }
+    }
+  }
+}
