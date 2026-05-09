@@ -39,7 +39,7 @@ npx gondolin build --config build-config.json --output ./image
 
 ## Credentials
 
-Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accounts to look up and how to format them is entirely driven by `config.json` — no code changes needed to add a new secret.
+Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accounts to look up and how to format them is entirely driven by `~/.pi/agent/gondolin.json` — no code changes needed to add a new secret.
 
 ```bash
 # GitHub PAT (scoped for pi — separate from `gh auth`)
@@ -52,11 +52,21 @@ echo -n 'user@example.com:api-token' | base64 | \
 
 To rotate, re-run the `security add-generic-password` command with `-U` (update).
 
-## Local config (`config.json`)
+Use `setup-secret.sh` for an interactive prompt:
 
-`config.json` in the extension directory drives allowed hosts **and** secret injection. It is listed in `.gitignore` and never committed.
+```bash
+./setup-secret.sh          # pick from list
+./setup-secret.sh GH_TOKEN # configure a specific secret
+```
 
-**Format:**
+## Configuration
+
+Config lives at two locations and is merged at startup:
+
+- **Global**: `~/.pi/agent/gondolin.json` — shared across all projects
+- **Per-project**: `<workspace>/.pi/gondolin.json` — project-specific overrides
+
+Both files use the same schema:
 
 ```json
 {
@@ -73,26 +83,7 @@ To rotate, re-run the `security add-generic-password` command with `-U` (update)
       "keychain": "atlassian",
       "hosts": ["example.atlassian.net"]
     }
-  }
-}
-```
-
-- `allowedHosts` — full list of hosts the VM may reach. There is no built-in allowlist; every allowed host must appear here.
-- `secrets.<NAME>.keychain` — keychain account name (single string).
-- `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
-
-The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
-
-If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
-
-## Per-project config (`.pi/gondolin.json`)
-
-Place a `.pi/gondolin.json` file in the workspace root to mount additional host directories into the VM for that project.
-
-**Format:**
-
-```json
-{
+  },
   "mounts": {
     "/shared-libs": { "path": "~/code/shared-libs", "mode": "ro" },
     "/other-repo":  { "path": "~/code/other-repo",  "mode": "rw" }
@@ -100,16 +91,33 @@ Place a `.pi/gondolin.json` file in the workspace root to mount additional host 
 }
 ```
 
-- Keys are **absolute guest paths** where the directory will appear inside the VM.
-- `path` — host path; supports `~` expansion.
-- `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
+### Merge behavior
 
-The `.pi` directory itself is **shadowed** from the sandbox — the VM cannot see or modify `.pi/gondolin.json` or anything else under `.pi/`.
+- `allowedHosts` — concatenated (both lists apply)
+- `secrets` — merged; per-project wins on key conflict
+- `mounts` — merged; per-project wins on key conflict
 
-**Example use cases:**
+### Fields
 
-- Mount a shared-library monorepo read-only so the agent can browse and link against it without being able to modify it.
+- `allowedHosts` — full list of hosts the VM may reach over HTTPS. There is no built-in allowlist; every allowed host must appear here (in global or per-project config).
+- `secrets.<NAME>.keychain` — keychain account name (looked up under service `pi-gondolin`).
+- `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
+- `mounts` — additional host directories to mount into the VM.
+  - Keys are **absolute guest paths** where the directory appears inside the VM.
+  - `path` — host path; supports `~` expansion.
+  - `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
+
+The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
+
+If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
+
+The `.pi` directory is **shadowed** in the sandbox — the VM cannot see or modify `.pi/gondolin.json` or anything else under `.pi/`.
+
+**Example per-project uses:**
+
+- Mount a shared-library monorepo read-only so the agent can browse and link against it.
 - Mount a sibling repo read-write when the task requires coordinated changes across two projects.
+- Add project-specific `allowedHosts` (e.g. an internal registry) without touching the global config.
 
 ## Usage
 
@@ -130,7 +138,7 @@ pi -e ~/.pi/pi-gondolin
 
 ## Network policy
 
-All allowed HTTPS hosts are listed in `config.json` under `allowedHosts`. There is no built-in allowlist — the config is the single source of truth. SSH egress is separately controlled (`github.com:22`, proxied through the host agent).
+All allowed HTTPS hosts are listed under `allowedHosts` in the global and/or per-project config. There is no built-in allowlist — the config is the single source of truth. SSH egress is separately controlled (`github.com:22`, proxied through the host agent).
 
 All other network access is denied. DNS is synthetic (no DNS tunneling).
 
@@ -141,6 +149,8 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 | `/workspace` | `$CWD` | read-write |
 | `/home/agent/.pi/agent/skills` | `~/.pi/agent/skills` | read-write |
 | `/home/agent/.pi/agent/agents` | `~/.pi/agent/agents` | read-write |
+
+Additional mounts are configured via `mounts` in global or per-project config.
 
 ## Rebuilding the image
 

@@ -40,6 +40,25 @@ const GUEST_PI_AGENT = "/root/.pi/agent";
 const GUEST_JJ_CONFIG = "/root/.config/jj";
 const GUEST_GITHUB_REPOS = "/tmp/pi-github-repos";
 
+interface SecretConfig {
+  keychain: string;   // keychain account name
+  hosts: string[];    // hosts that receive this secret
+}
+
+interface GondolinConfig {
+  allowedHosts?: string[];
+  secrets?: Record<string, SecretConfig>;
+  mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
+}
+
+function mergeConfigs(global: GondolinConfig, project: GondolinConfig): GondolinConfig {
+  return {
+    allowedHosts: [...(global.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
+    secrets: { ...(global.secrets ?? {}), ...(project.secrets ?? {}) },
+    mounts: { ...(global.mounts ?? {}), ...(project.mounts ?? {}) },
+  };
+}
+
 function shQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''" ) + "'";
 }
@@ -259,30 +278,31 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.theme.fg("accent", "Gondolin: starting VM..."),
       );
 
-      // Load optional user-specific config (gitignored)
-      interface SecretConfig {
-        keychain: string;   // keychain account name
-        hosts: string[];    // hosts that receive this secret
-      }
-
-      interface GondolinConfig {
-        allowedHosts?: string[];
-        secrets?: Record<string, SecretConfig>;
-      }
-
-      let userConfig: GondolinConfig = {};
+      // Load global config (~/.pi/agent/gondolin.json)
+      const fs = await import("node:fs");
+      let globalConfig: GondolinConfig = {};
       try {
-        const configPath = path.join(__dirname, "config.json");
-        const configText = await import("node:fs").then(fs => fs.readFileSync(configPath, "utf-8"));
-        userConfig = JSON.parse(configText);
+        const globalConfigPath = path.join(os.homedir(), ".pi/agent/gondolin.json");
+        globalConfig = JSON.parse(fs.readFileSync(globalConfigPath, "utf-8"));
       } catch {
         // No config file or invalid — use defaults only
       }
 
-      // Resolve secrets from config
+      // Load per-project config (.pi/gondolin.json in workspace root)
+      let projectConfig: GondolinConfig = {};
+      try {
+        const projectConfigPath = path.join(localCwd, ".pi/gondolin.json");
+        projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
+      } catch {
+        // No project config — use defaults only
+      }
+
+      const config = mergeConfigs(globalConfig, projectConfig);
+
+      // Resolve secrets from merged config
       const resolvedSecrets: Record<string, { hosts: string[]; value: string }> = {};
-      if (userConfig.secrets) {
-        for (const [name, cfg] of Object.entries(userConfig.secrets)) {
+      if (config.secrets) {
+        for (const [name, cfg] of Object.entries(config.secrets)) {
           const value = keychainGet(cfg.keychain);
           if (!value) continue;
           resolvedSecrets[name] = { hosts: cfg.hosts, value };
@@ -290,12 +310,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       const { httpHooks, env } = createHttpHooks({
-        allowedHosts: userConfig.allowedHosts ?? [],
+        allowedHosts: config.allowedHosts ?? [],
         secrets: resolvedSecrets,
       });
 
       // Ensure host directories for read-only mounts exist
-      const fs = await import("node:fs");
       fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
 
       const crypto = await import("node:crypto");
@@ -303,23 +322,10 @@ export default function (pi: ExtensionAPI) {
       const cacheDir = path.join(home, ".cache/pi-gondolin/node_modules", cwdHash);
       fs.mkdirSync(cacheDir, { recursive: true });
 
-      // Load per-project config (.pi/gondolin.json in workspace root)
-      interface ProjectConfig {
-        mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
-      }
-      let projectConfig: ProjectConfig = {};
-      try {
-        const projectConfigPath = path.join(localCwd, ".pi/gondolin.json");
-        const projectConfigText = fs.readFileSync(projectConfigPath, "utf-8");
-        projectConfig = JSON.parse(projectConfigText);
-      } catch {
-        // No project config — use defaults only
-      }
-
-      // Build additional VFS mounts and path mappings from per-project config
+      // Build additional VFS mounts and path mappings from merged config
       const projectMounts: Record<string, VirtualProvider> = {};
-      if (projectConfig.mounts) {
-        for (const [guestPath, cfg] of Object.entries(projectConfig.mounts)) {
+      if (config.mounts) {
+        for (const [guestPath, cfg] of Object.entries(config.mounts)) {
           const hostPath = cfg.path.replace(/^~/, home);
           const provider = new RealFSProvider(hostPath);
           projectMounts[guestPath] = cfg.mode === "rw" ? provider : new ReadonlyProvider(provider);

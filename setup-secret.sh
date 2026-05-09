@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # setup-secret.sh — interactively store pi-gondolin secrets in macOS Keychain.
-# Reads available secrets from config.json (same directory as this script).
+# Reads available secrets from ~/.pi/agent/gondolin.json.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/config.json"
+CONFIG="$HOME/.pi/agent/gondolin.json"
 
 # ---------------------------------------------------------------------------
 # Sanity checks
 # ---------------------------------------------------------------------------
 if [[ ! -f "$CONFIG" ]]; then
-  echo "Error: config.json not found at $CONFIG" >&2
+  echo "Error: gondolin.json not found at $CONFIG" >&2
   exit 1
 fi
 
@@ -77,7 +76,7 @@ PYEOF
 if [[ $# -ge 1 ]]; then
   SECRET_NAME="$1"
   if ! get_secret_names | grep -qx "$SECRET_NAME"; then
-    echo "Error: '$SECRET_NAME' is not defined in config.json" >&2
+    echo "Error: '$SECRET_NAME' is not defined in $CONFIG" >&2
     echo "Available secrets:" >&2
     get_secret_names | sed 's/^/  /' >&2
     exit 1
@@ -109,7 +108,7 @@ else
       [[ "$n" == "$SECRET_NAME" ]] && found=1 && break
     done
     if [[ $found -eq 0 ]]; then
-      echo "Error: '$SECRET_NAME' is not defined in config.json" >&2
+      echo "Error: '$SECRET_NAME' is not defined in $CONFIG" >&2
       exit 1
     fi
   fi
