@@ -50,10 +50,7 @@ const sharedVms = new Map<string, SharedEntry>();
  * @returns `isOwner: true` for the first acquirer (should run one-time
  *          setup like the Obsidian bridge); `false` for subsequent ones.
  */
-export function acquireVm(
-  localCwd: string,
-  home: string,
-): { vm: DungeonVm; isOwner: boolean } {
+export function acquireVm(localCwd: string, home: string): { vm: DungeonVm; isOwner: boolean } {
   const existing = sharedVms.get(localCwd);
   if (existing) {
     existing.refs++;
@@ -82,6 +79,9 @@ export class DungeonVm {
   /** Live path mappings; grows after VM startup with user-configured mounts. */
   readonly mappings: PathMapping[];
   readonly guestWorkspace: string;
+
+  /** When true, all tool overrides delegate to native (host) implementations. */
+  public bypassed: boolean = false;
 
   private vm: VM | null = null;
   private vmStarting: Promise<VM> | null = null;

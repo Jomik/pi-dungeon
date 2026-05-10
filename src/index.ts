@@ -44,6 +44,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...localRead,
     async execute(id, params, signal, onUpdate, ctx) {
+      if (dungeonVm.bypassed) return localRead.execute(id, params, signal, onUpdate);
       const activeVm = await dungeonVm.ensure(ctx);
       const tool = createReadTool(localCwd, {
         operations: createDungeonReadOps(activeVm, dungeonVm.mappings),
@@ -55,6 +56,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...localWrite,
     async execute(id, params, signal, onUpdate, ctx) {
+      if (dungeonVm.bypassed) return localWrite.execute(id, params, signal, onUpdate);
       const activeVm = await dungeonVm.ensure(ctx);
       const tool = createWriteTool(localCwd, {
         operations: createDungeonWriteOps(activeVm, dungeonVm.mappings),
@@ -66,6 +68,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...localEdit,
     async execute(id, params, signal, onUpdate, ctx) {
+      if (dungeonVm.bypassed) return localEdit.execute(id, params, signal, onUpdate);
       const activeVm = await dungeonVm.ensure(ctx);
       const tool = createEditTool(localCwd, {
         operations: createDungeonEditOps(activeVm, dungeonVm.mappings),
@@ -77,6 +80,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...localBash,
     async execute(id, params, signal, onUpdate, ctx) {
+      if (dungeonVm.bypassed) return localBash.execute(id, params, signal, onUpdate);
       const activeVm = await dungeonVm.ensure(ctx);
       const tool = createBashTool(localCwd, {
         operations: createDungeonBashOps(activeVm, dungeonVm.mappings),
@@ -86,16 +90,45 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("user_bash", async (_event, ctx) => {
+    if (dungeonVm.bypassed) return undefined;
     const activeVm = await dungeonVm.ensure(ctx);
     return { operations: createDungeonBashOps(activeVm, dungeonVm.mappings) };
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
+    if (dungeonVm.bypassed) return;
     await dungeonVm.ensure(ctx);
     const modified = event.systemPrompt.replaceAll(
       `Current working directory: ${localCwd}`,
       `Current working directory: ${dungeonVm.guestWorkspace} (Dungeon sandbox, mounted from host: ${localCwd})`,
     );
     return { systemPrompt: modified };
+  });
+
+  pi.registerCommand("dungeon", {
+    description: "Toggle Dungeon sandbox: /dungeon exit — bypass sandbox, /dungeon enter — re-enable sandbox",
+    handler: async (args, ctx) => {
+      const sub = args.trim().toLowerCase();
+      if (sub === "exit") {
+        if (dungeonVm.bypassed) {
+          ctx.ui.notify("Already outside the Dungeon", "warning");
+          return;
+        }
+        dungeonVm.bypassed = true;
+        ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("muted", "Dungeon: bypassed"));
+        ctx.ui.notify("Dungeon bypassed — tools run on host", "warning");
+      } else if (sub === "enter") {
+        if (!dungeonVm.bypassed) {
+          ctx.ui.notify("Already inside the Dungeon", "warning");
+          return;
+        }
+        dungeonVm.bypassed = false;
+        ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
+        ctx.ui.notify("Dungeon re-enabled — tools run in sandbox", "info");
+      } else {
+        const status = dungeonVm.bypassed ? "bypassed (host)" : "active (sandboxed)";
+        ctx.ui.notify(`Dungeon status: ${status}. Use /dungeon enter or /dungeon exit`, "info");
+      }
+    },
   });
 }
