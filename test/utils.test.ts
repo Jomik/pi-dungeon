@@ -1,11 +1,6 @@
-import { describe, it, expect } from "vitest";
 import os from "node:os";
-import {
-  mergeConfigs,
-  shQuote,
-  toGuestPath,
-  createPathMappings,
-} from "../extension.ts";
+import { describe, expect, it } from "vitest";
+import { createPathMappings, mergeConfigs, shQuote, toGuestPath } from "../extension.ts";
 
 // ---------------------------------------------------------------------------
 // mergeConfigs
@@ -24,20 +19,13 @@ describe("mergeConfigs", () => {
       { allowedHosts: ["example.com"] },
       { allowedHosts: ["api.example.com", "cdn.example.com"] },
     );
-    expect(result.allowedHosts).toEqual([
-      "example.com",
-      "api.example.com",
-      "cdn.example.com",
-    ]);
+    expect(result.allowedHosts).toEqual(["example.com", "api.example.com", "cdn.example.com"]);
   });
 
   it("project allowedHosts appear after global ones", () => {
-    const result = mergeConfigs(
-      { allowedHosts: ["global.com"] },
-      { allowedHosts: ["project.com"] },
-    );
-    expect(result.allowedHosts![0]).toBe("global.com");
-    expect(result.allowedHosts![1]).toBe("project.com");
+    const result = mergeConfigs({ allowedHosts: ["global.com"] }, { allowedHosts: ["project.com"] });
+    expect(result.allowedHosts?.[0]).toBe("global.com");
+    expect(result.allowedHosts?.[1]).toBe("project.com");
   });
 
   it("merges secrets, project wins on conflict", () => {
@@ -55,16 +43,16 @@ describe("mergeConfigs", () => {
         },
       },
     );
-    expect(result.secrets!["TOKEN"]).toEqual({
+    expect(result.secrets?.TOKEN).toEqual({
       keychain: "global-token",
       hosts: ["global.com"],
     });
     // project wins on conflict
-    expect(result.secrets!["SHARED"]).toEqual({
+    expect(result.secrets?.SHARED).toEqual({
       keychain: "project-shared",
       hosts: ["project.com"],
     });
-    expect(result.secrets!["NEW"]).toEqual({
+    expect(result.secrets?.NEW).toEqual({
       keychain: "project-new",
       hosts: ["new.com"],
     });
@@ -85,12 +73,12 @@ describe("mergeConfigs", () => {
         },
       },
     );
-    expect(result.mounts!["/guest/a"]).toEqual({ path: "/host/a", mode: "ro" });
-    expect(result.mounts!["/guest/shared"]).toEqual({
+    expect(result.mounts?.["/guest/a"]).toEqual({ path: "/host/a", mode: "ro" });
+    expect(result.mounts?.["/guest/shared"]).toEqual({
       path: "/host/project-shared",
       mode: "rw",
     });
-    expect(result.mounts!["/guest/b"]).toEqual({ path: "/host/b", mode: "rw" });
+    expect(result.mounts?.["/guest/b"]).toEqual({ path: "/host/b", mode: "rw" });
   });
 
   it("handles partial configs (only one side has fields)", () => {
@@ -99,7 +87,7 @@ describe("mergeConfigs", () => {
       { secrets: { KEY: { keychain: "k", hosts: ["h.com"] } } },
     );
     expect(result.allowedHosts).toEqual(["global.com"]);
-    expect(result.secrets!["KEY"]).toBeDefined();
+    expect(result.secrets?.KEY).toBeDefined();
     expect(result.mounts).toEqual({});
   });
 });
@@ -159,28 +147,20 @@ describe("toGuestPath", () => {
   });
 
   it("maps a subpath correctly", () => {
-    expect(toGuestPath(mappings, "/host/workspace/src/foo.ts")).toBe(
-      "/guest/workspace/src/foo.ts",
-    );
+    expect(toGuestPath(mappings, "/host/workspace/src/foo.ts")).toBe("/guest/workspace/src/foo.ts");
   });
 
   it("maps a different mount's subpath correctly", () => {
-    expect(toGuestPath(mappings, "/host/agent/skills/bash.md")).toBe(
-      "/root/.pi/agent/skills/bash.md",
-    );
+    expect(toGuestPath(mappings, "/host/agent/skills/bash.md")).toBe("/root/.pi/agent/skills/bash.md");
   });
 
   it("throws for a path outside all mappings", () => {
-    expect(() => toGuestPath(mappings, "/etc/passwd")).toThrow(
-      "path not accessible in sandbox",
-    );
+    expect(() => toGuestPath(mappings, "/etc/passwd")).toThrow("path not accessible in sandbox");
   });
 
   it("throws for a path that is a sibling of a mapped dir (not inside it)", () => {
     // /host/workspace-other starts with /host/workspace but is not inside it
-    expect(() => toGuestPath(mappings, "/host/workspace-other/file")).toThrow(
-      "path not accessible in sandbox",
-    );
+    expect(() => toGuestPath(mappings, "/host/workspace-other/file")).toThrow("path not accessible in sandbox");
   });
 
   it("rejects path traversal that escapes a mapping", () => {

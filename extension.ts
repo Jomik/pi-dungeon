@@ -12,17 +12,22 @@
  * - SSH egress: github.com (uses host SSH agent)
  */
 
-import path from "node:path";
-import os from "node:os";
-import fs from "node:fs";
+import { execFileSync, execSync, fork } from "node:child_process";
 import crypto from "node:crypto";
-import { execSync, execFileSync, fork } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import {
+  createHttpHooks,
+  createShadowPathPredicate,
+  ReadonlyProvider,
+  RealFSProvider,
+  ShadowProvider,
+  type VirtualProvider,
+  VM,
+} from "@earendil-works/gondolin";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   type BashOperations,
   createBashTool,
@@ -34,8 +39,6 @@ import {
   type WriteOperations,
 } from "@earendil-works/pi-coding-agent";
 
-import { VM, RealFSProvider, ReadonlyProvider, ShadowProvider, createHttpHooks, createShadowPathPredicate, type VirtualProvider } from "@earendil-works/gondolin";
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const GUEST_PI_AGENT = "/root/.pi/agent";
@@ -45,8 +48,8 @@ const OBSIDIAN_BRIDGE_PORT = 57843;
 const KEYCHAIN_SERVICE = "pi-gondolin";
 
 interface SecretConfig {
-  keychain: string;   // keychain account name
-  hosts: string[];    // hosts that receive this secret
+  keychain: string; // keychain account name
+  hosts: string[]; // hosts that receive this secret
 }
 
 interface GondolinConfig {
@@ -64,7 +67,7 @@ export function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig)
 }
 
 export function shQuote(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''" ) + "'";
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 interface PathMapping {
@@ -100,10 +103,7 @@ export function toGuestPath(mappings: PathMapping[], localPath: string): string 
   throw new Error(`path not accessible in sandbox: ${localPath}`);
 }
 
-function createGondolinReadOps(
-  vm: VM,
-  mappings: PathMapping[],
-): ReadOperations {
+function createGondolinReadOps(vm: VM, mappings: PathMapping[]): ReadOperations {
   return {
     readFile: async (p) => {
       const guestPath = toGuestPath(mappings, p);
@@ -115,11 +115,7 @@ function createGondolinReadOps(
     },
     access: async (p) => {
       const guestPath = toGuestPath(mappings, p);
-      const r = await vm.exec([
-        "/bin/sh",
-        "-lc",
-        `test -r ${shQuote(guestPath)}`,
-      ]);
+      const r = await vm.exec(["/bin/sh", "-lc", `test -r ${shQuote(guestPath)}`]);
       if (!r.ok) {
         throw new Error(`not readable: ${p}`);
       }
@@ -127,18 +123,10 @@ function createGondolinReadOps(
     detectImageMimeType: async (p) => {
       const guestPath = toGuestPath(mappings, p);
       try {
-        const r = await vm.exec([
-          "/bin/sh",
-          "-lc",
-          `file --mime-type -b ${shQuote(guestPath)}`,
-        ]);
+        const r = await vm.exec(["/bin/sh", "-lc", `file --mime-type -b ${shQuote(guestPath)}`]);
         if (!r.ok) return null;
         const m = r.stdout.trim();
-        return ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(
-          m,
-        )
-          ? m
-          : null;
+        return ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(m) ? m : null;
       } catch {
         return null;
       }
@@ -146,10 +134,7 @@ function createGondolinReadOps(
   };
 }
 
-function createGondolinWriteOps(
-  vm: VM,
-  mappings: PathMapping[],
-): WriteOperations {
+function createGondolinWriteOps(vm: VM, mappings: PathMapping[]): WriteOperations {
   return {
     writeFile: async (p, content) => {
       const guestPath = toGuestPath(mappings, p);
@@ -175,18 +160,13 @@ function createGondolinWriteOps(
   };
 }
 
-function createGondolinEditOps(
-  vm: VM,
-  mappings: PathMapping[],
-): EditOperations {
+function createGondolinEditOps(vm: VM, mappings: PathMapping[]): EditOperations {
   const r = createGondolinReadOps(vm, mappings);
   const w = createGondolinWriteOps(vm, mappings);
   return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
 }
 
-function sanitizeEnv(
-  env?: NodeJS.ProcessEnv,
-): Record<string, string> | undefined {
+function sanitizeEnv(env?: NodeJS.ProcessEnv): Record<string, string> | undefined {
   if (!env) return undefined;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
@@ -195,10 +175,7 @@ function sanitizeEnv(
   return out;
 }
 
-function createGondolinBashOps(
-  vm: VM,
-  mappings: PathMapping[],
-): BashOperations {
+function createGondolinBashOps(vm: VM, mappings: PathMapping[]): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout, env }) => {
       const guestCwd = toGuestPath(mappings, cwd);
@@ -276,10 +253,7 @@ export default function (pi: ExtensionAPI) {
     if (vmStarting) return vmStarting;
 
     vmStarting = (async () => {
-      ctx?.ui.setStatus(
-        "gondolin",
-        ctx.ui.theme.fg("accent", "Gondolin: starting VM..."),
-      );
+      ctx?.ui.setStatus("gondolin", ctx.ui.theme.fg("accent", "Gondolin: starting VM..."));
 
       // Load global config (~/.pi/agent/gondolin.json)
       let globalConfig: GondolinConfig = {};
@@ -356,18 +330,14 @@ export default function (pi: ExtensionAPI) {
         vfs: {
           mounts: {
             ...projectMounts,
-            [GUEST_WORKSPACE]: new ShadowProvider(
-              new RealFSProvider(localCwd),
-              {
-                shouldShadow: createShadowPathPredicate(["/node_modules", "/.pi/gondolin.json"]),
-                writeMode: "tmpfs",
-                tmpfs: new RealFSProvider(cacheDir),
-              },
-            ),
-            [GUEST_PI_AGENT]: new ShadowProvider(
-              new RealFSProvider(path.join(home, ".pi/agent")),
-              { shouldShadow: createShadowPathPredicate(["/auth.json", "/sessions"]) },
-            ),
+            [GUEST_WORKSPACE]: new ShadowProvider(new RealFSProvider(localCwd), {
+              shouldShadow: createShadowPathPredicate(["/node_modules", "/.pi/gondolin.json"]),
+              writeMode: "tmpfs",
+              tmpfs: new RealFSProvider(cacheDir),
+            }),
+            [GUEST_PI_AGENT]: new ShadowProvider(new RealFSProvider(path.join(home, ".pi/agent")), {
+              shouldShadow: createShadowPathPredicate(["/auth.json", "/sessions"]),
+            }),
             [GUEST_JJ_CONFIG]: new ReadonlyProvider(new RealFSProvider(path.join(home, ".config/jj"))),
             [GUEST_GITHUB_REPOS]: new ReadonlyProvider(new RealFSProvider("/tmp/pi-github-repos")),
           },
@@ -380,57 +350,58 @@ export default function (pi: ExtensionAPI) {
       let pubkeyLines: string[] = [];
       try {
         const pubkey = fs.readFileSync(path.join(home, ".ssh/id_ed25519_private.pub"), "utf8").trim();
-        pubkeyLines = [
-          `cat > /root/.ssh/id_ed25519_private.pub << 'SSHPUB'`,
-          pubkey,
-          "SSHPUB",
-        ];
+        pubkeyLines = [`cat > /root/.ssh/id_ed25519_private.pub << 'SSHPUB'`, pubkey, "SSHPUB"];
       } catch {
         // pubkey file not found — skip injection
       }
 
-      const sshResult = await created.exec(["/bin/sh", "-c", [
-        "mkdir -p /root/.ssh",
-        "chmod 700 /root/.ssh",
-        "cat > /root/.ssh/config << 'SSHCFG'",
-        "Host github.com",
-        "  StrictHostKeyChecking no",
-        "  UserKnownHostsFile /dev/null",
-        "SSHCFG",
-        "chmod 600 /root/.ssh/config",
-        // Inject SSH signing pubkey so jj/git can sign commits via the forwarded agent
-        ...pubkeyLines,
-        // Point jj at the mounted host config
-        "echo 'export JJ_CONFIG=/root/.config/jj' > /etc/profile.d/jj.sh",
-      ].join("\n")]);
+      const sshResult = await created.exec([
+        "/bin/sh",
+        "-c",
+        [
+          "mkdir -p /root/.ssh",
+          "chmod 700 /root/.ssh",
+          "cat > /root/.ssh/config << 'SSHCFG'",
+          "Host github.com",
+          "  StrictHostKeyChecking no",
+          "  UserKnownHostsFile /dev/null",
+          "SSHCFG",
+          "chmod 600 /root/.ssh/config",
+          // Inject SSH signing pubkey so jj/git can sign commits via the forwarded agent
+          ...pubkeyLines,
+          // Point jj at the mounted host config
+          "echo 'export JJ_CONFIG=/root/.config/jj' > /etc/profile.d/jj.sh",
+        ].join("\n"),
+      ]);
       if (!sshResult.ok) throw new Error(`SSH setup failed (${sshResult.exitCode}): ${sshResult.stderr}`);
 
-
       // Install obsidian CLI shim in the VM
-      const shimResult = await created.exec(["/bin/sh", "-c", [
-        "cat > /usr/local/bin/obsidian << 'SHIM'",
-        "#!/usr/bin/env node",
-        "const http = require('http');",
-        "const payload = JSON.stringify({argv: process.argv.slice(2), tty: false, cwd: process.cwd()});",
-        `const req = http.request({hostname: 'obsidian-bridge', port: ${OBSIDIAN_BRIDGE_PORT}, method: 'POST'}, res => {`,
-        "  res.on('data', c => process.stdout.write(c));",
-        "  res.on('end', () => process.exit(res.statusCode === 200 ? 0 : 1));",
-        "});",
-        "req.on('error', e => { process.stderr.write(e.message + '\\n'); process.exit(1); });",
-        "req.end(payload);",
-        "SHIM",
-        "chmod +x /usr/local/bin/obsidian",
-      ].join("\n")]);
-      if (!shimResult.ok) throw new Error(`Obsidian shim install failed (${shimResult.exitCode}): ${shimResult.stderr}`);
+      const shimResult = await created.exec([
+        "/bin/sh",
+        "-c",
+        [
+          "cat > /usr/local/bin/obsidian << 'SHIM'",
+          "#!/usr/bin/env node",
+          "const http = require('http');",
+          "const payload = JSON.stringify({argv: process.argv.slice(2), tty: false, cwd: process.cwd()});",
+          `const req = http.request({hostname: 'obsidian-bridge', port: ${OBSIDIAN_BRIDGE_PORT}, method: 'POST'}, res => {`,
+          "  res.on('data', c => process.stdout.write(c));",
+          "  res.on('end', () => process.exit(res.statusCode === 200 ? 0 : 1));",
+          "});",
+          "req.on('error', e => { process.stderr.write(e.message + '\\n'); process.exit(1); });",
+          "req.end(payload);",
+          "SHIM",
+          "chmod +x /usr/local/bin/obsidian",
+        ].join("\n"),
+      ]);
+      if (!shimResult.ok)
+        throw new Error(`Obsidian shim install failed (${shimResult.exitCode}): ${shimResult.stderr}`);
 
       // All setup complete — commit state atomically
       for (const m of pendingMappings) mappings.push(m);
       vm = created;
 
-      ctx?.ui.setStatus(
-        "gondolin",
-        ctx.ui.theme.fg("accent", "Gondolin: running"),
-      );
+      ctx?.ui.setStatus("gondolin", ctx.ui.theme.fg("accent", "Gondolin: running"));
       ctx?.ui.notify("Gondolin VM ready", "info");
       return created;
     })().catch((err) => {
@@ -443,11 +414,10 @@ export default function (pi: ExtensionAPI) {
 
   function keychainGet(account: string): string | undefined {
     try {
-      return execFileSync(
-        "security",
-        ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"],
-        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-      ).trim();
+      return execFileSync("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"], {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
     } catch {
       return undefined;
     }

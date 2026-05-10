@@ -1,7 +1,7 @@
-const http = require("http");
-const net = require("net");
-const { join } = require("path");
-const { homedir } = require("os");
+const http = require("node:http");
+const net = require("node:net");
+const { join } = require("node:path");
+const { homedir } = require("node:os");
 
 const SOCK = join(homedir(), ".obsidian-cli.sock");
 const PORT = 57843;
@@ -11,7 +11,7 @@ http
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      const sock = net.createConnection(SOCK, () => sock.write(body + "\n"));
+      const sock = net.createConnection(SOCK, () => sock.write(`${body}\n`));
       let response = "";
       sock.on("data", (d) => (response += d));
       sock.on("end", () => res.end(response));
