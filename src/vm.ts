@@ -28,6 +28,56 @@ import type { PathMapping } from "./types.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/* ------------------------------------------------------------------ */
+/* Shared VM registry                                                  */
+/*                                                                     */
+/* Extensions load once per session, but parent and imp sessions share  */
+/* the same Node process.  A module-level Map lets imp sessions reuse   */
+/* the parent's VM instead of booting a second one.  Ref-counting       */
+/* ensures close() only tears down the VM after the last user releases. */
+/* ------------------------------------------------------------------ */
+
+interface SharedEntry {
+  vm: DungeonVm;
+  refs: number;
+}
+
+const sharedVms = new Map<string, SharedEntry>();
+
+/**
+ * Obtain a DungeonVm for `localCwd`, creating one if none exists yet.
+ *
+ * @returns `isOwner: true` for the first acquirer (should run one-time
+ *          setup like the Obsidian bridge); `false` for subsequent ones.
+ */
+export function acquireVm(
+  localCwd: string,
+  home: string,
+): { vm: DungeonVm; isOwner: boolean } {
+  const existing = sharedVms.get(localCwd);
+  if (existing) {
+    existing.refs++;
+    return { vm: existing.vm, isOwner: false };
+  }
+  const vm = new DungeonVm(localCwd, home);
+  sharedVms.set(localCwd, { vm, refs: 1 });
+  return { vm, isOwner: true };
+}
+
+/**
+ * Release a reference to the shared VM for `localCwd`.
+ * The VM is closed only when the last reference is released.
+ */
+export async function releaseVm(localCwd: string): Promise<void> {
+  const entry = sharedVms.get(localCwd);
+  if (!entry) return;
+  entry.refs--;
+  if (entry.refs <= 0) {
+    sharedVms.delete(localCwd);
+    await entry.vm.close();
+  }
+}
+
 export class DungeonVm {
   /** Live path mappings; grows after VM startup with user-configured mounts. */
   readonly mappings: PathMapping[];
@@ -60,7 +110,12 @@ export class DungeonVm {
     return this.vmStarting;
   }
 
-  /** Tear down the VM. Safe to call even if the VM never started. */
+  /**
+   * Tear down the VM. Safe to call even if the VM never started.
+   *
+   * Prefer {@link releaseVm} when using the shared registry — it
+   * ref-counts and only calls close() on the last release.
+   */
   async close(): Promise<void> {
     const pending = this.vmStarting;
     if (pending) {

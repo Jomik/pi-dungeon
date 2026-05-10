@@ -19,13 +19,13 @@ import { createBashTool, createEditTool, createReadTool, createWriteTool } from 
 
 import { startObsidianBridge } from "./obsidian.ts";
 import { createDungeonBashOps, createDungeonEditOps, createDungeonReadOps, createDungeonWriteOps } from "./tools.ts";
-import { DungeonVm } from "./vm.ts";
+import { acquireVm, releaseVm } from "./vm.ts";
 
 export default function (pi: ExtensionAPI) {
   const localCwd = process.cwd();
   const home = os.homedir();
 
-  const dungeonVm = new DungeonVm(localCwd, home);
+  const { vm: dungeonVm, isOwner } = acquireVm(localCwd, home);
 
   const localRead = createReadTool(localCwd);
   const localWrite = createWriteTool(localCwd);
@@ -33,12 +33,12 @@ export default function (pi: ExtensionAPI) {
   const localBash = createBashTool(localCwd);
 
   pi.on("session_start", async (_event, ctx) => {
-    startObsidianBridge();
+    if (isOwner) startObsidianBridge();
     await dungeonVm.ensure(ctx);
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {
-    await dungeonVm.close();
+    await releaseVm(localCwd);
   });
 
   pi.registerTool({
