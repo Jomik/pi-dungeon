@@ -23,10 +23,10 @@ import type { DungeonConfig, PathMapping } from "./types.ts";
 
 /**
  * Paths inside the workspace that are always shadowed (hidden from the VM).
- * node_modules uses tmpfs write overlay; dungeon.json contains the VM policy
- * itself and must never be visible to agent code running inside the sandbox.
+ * dungeon.json contains the VM policy itself and must never be visible to
+ * agent code running inside the sandbox.
  */
-export const WORKSPACE_ALWAYS_SHADOWED = ["/node_modules", "/.pi/dungeon.json"];
+export const WORKSPACE_ALWAYS_SHADOWED = ["/.pi/dungeon.json"];
 
 /**
  * Paths inside ~/.pi/agent that are always shadowed.
@@ -62,10 +62,31 @@ export function buildMounts(
   // Ensure host directories that back read-only mounts exist.
   fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
 
-  // Per-workspace node_modules cache so tmpfs writes survive VM restarts.
-  const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
-  const cacheDir = path.join(home, ".cache/pi-dungeon/node_modules", cwdHash);
-  fs.mkdirSync(cacheDir, { recursive: true });
+  // Build the workspace VFS backend.
+  // Layer 1 (innermost): real host filesystem.
+  let workspaceBackend: VirtualProvider = new RealFSProvider(localCwd);
+
+  // Layer 2: tmpfs overlay for config.tmpfsPaths (e.g. node_modules, .venv).
+  // Guest writes are stored in a per-workspace on-disk cache so they survive
+  // VM restarts, but never touch the host workspace directory.
+  const tmpfsPaths = config.tmpfsPaths ?? [];
+  if (tmpfsPaths.length > 0) {
+    const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
+    const cacheDir = path.join(home, ".cache/pi-dungeon/workspace", cwdHash);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    workspaceBackend = new ShadowProvider(workspaceBackend, {
+      shouldShadow: createShadowPathPredicate(tmpfsPaths),
+      writeMode: "tmpfs",
+      tmpfs: new RealFSProvider(cacheDir),
+    });
+  }
+
+  // Layer 3 (outermost): deny layer for security-critical paths that must
+  // never be visible to the guest regardless of user config.
+  const hiddenPaths = config.hiddenPaths ?? [];
+  const workspaceMount = new ShadowProvider(workspaceBackend, {
+    shouldShadow: createShadowPathPredicate([...WORKSPACE_ALWAYS_SHADOWED, ...hiddenPaths]),
+  });
 
   // Build additional mounts and path mappings from user config.
   const pendingMappings: PathMapping[] = [];
@@ -81,13 +102,9 @@ export function buildMounts(
 
   const mounts: Record<string, VirtualProvider> = {
     ...projectMounts,
-    // Workspace: read-write with tmpfs overlay for node_modules, and the
-    // dungeon policy file itself always shadowed.
-    [guestWorkspace]: new ShadowProvider(new RealFSProvider(localCwd), {
-      shouldShadow: createShadowPathPredicate(WORKSPACE_ALWAYS_SHADOWED),
-      writeMode: "tmpfs",
-      tmpfs: new RealFSProvider(cacheDir),
-    }),
+    // Workspace: read-write with configurable tmpfs overlay and security deny
+    // layer for dungeon policy file and any user-configured hiddenPaths.
+    [guestWorkspace]: workspaceMount,
     // ~/.pi/agent: live agent skills/config visible, but credentials hidden.
     [GUEST_PI_AGENT]: new ShadowProvider(new RealFSProvider(path.join(home, ".pi/agent")), {
       shouldShadow: createShadowPathPredicate(PI_AGENT_ALWAYS_SHADOWED),

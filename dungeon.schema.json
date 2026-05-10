@@ -62,6 +62,20 @@
           }
         }
       }
+    },
+    "hiddenPaths": {
+      "type": "array",
+      "description": "Workspace paths completely hidden from the guest. Useful for secret files like .env. Paths are relative to workspace root (prefix with /).",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tmpfsPaths": {
+      "type": "array",
+      "description": "Workspace paths shadowed from host with guest-writable tmpfs overlay. Useful for dependency directories like node_modules or .venv that should be isolated. Paths are relative to workspace root (prefix with /).",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

@@ -87,7 +87,9 @@ Both files use the same schema:
   "mounts": {
     "/shared-libs": { "path": "~/code/shared-libs", "mode": "ro" },
     "/other-repo":  { "path": "~/code/other-repo",  "mode": "rw" }
-  }
+  },
+  "hiddenPaths": ["/.env", "/.env.*"],
+  "tmpfsPaths": ["/node_modules", "/.venv"]
 }
 ```
 
@@ -96,6 +98,8 @@ Both files use the same schema:
 - `allowedHosts` — concatenated (both lists apply)
 - `secrets` — merged; per-project wins on key conflict
 - `mounts` — merged; per-project wins on key conflict
+- `hiddenPaths` — concatenated
+- `tmpfsPaths` — concatenated
 
 ### Fields
 
@@ -106,6 +110,8 @@ Both files use the same schema:
   - Keys are **absolute guest paths** where the directory appears inside the VM.
   - `path` — host path; supports `~` expansion.
   - `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
+- `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths are relative to workspace root (prefix with `/`).
+- `tmpfsPaths` — workspace paths shadowed from the host with a guest-writable tmpfs overlay. Useful for dependency directories like `node_modules` or `.venv` that should be isolated from the host. Paths are relative to workspace root (prefix with `/`). Writes are cached per-workspace across VM restarts.
 
 The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
 
@@ -146,7 +152,7 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 
 | Guest path | Host path | Mode |
 |------------|-----------|------|
-| `$CWD` | `$CWD` | read-write (ShadowProvider; `/node_modules` and `/.pi/dungeon.json` shadowed) |
+| `$CWD` | `$CWD` | read-write (ShadowProvider; `/.pi/dungeon.json` always shadowed; `hiddenPaths`/`tmpfsPaths` configurable) |
 | `/root/.pi/agent` | `~/.pi/agent` | read-write (ShadowProvider; `/auth.json` and `/sessions` shadowed) |
 | `~/.config/jj` | `~/.config/jj` | read-only |
 | `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |

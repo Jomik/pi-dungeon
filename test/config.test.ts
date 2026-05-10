@@ -89,4 +89,26 @@ describe("mergeConfigs", () => {
     expect(result.secrets?.KEY).toBeDefined();
     expect(result.mounts).toEqual({});
   });
+
+  it("concatenates hiddenPaths from both configs", () => {
+    const result = mergeConfigs({ hiddenPaths: ["/.env"] }, { hiddenPaths: ["/.env.local", "/.secrets"] });
+    expect(result.hiddenPaths).toEqual(["/.env", "/.env.local", "/.secrets"]);
+  });
+
+  it("concatenates tmpfsPaths from both configs", () => {
+    const result = mergeConfigs({ tmpfsPaths: ["/node_modules"] }, { tmpfsPaths: ["/.venv"] });
+    expect(result.tmpfsPaths).toEqual(["/node_modules", "/.venv"]);
+  });
+
+  it("handles partial configs with only hiddenPaths on one side", () => {
+    const result = mergeConfigs({ hiddenPaths: ["/.env"] }, {});
+    expect(result.hiddenPaths).toEqual(["/.env"]);
+    expect(result.tmpfsPaths).toEqual([]);
+  });
+
+  it("handles partial configs with only tmpfsPaths on one side", () => {
+    const result = mergeConfigs({}, { tmpfsPaths: ["/node_modules"] });
+    expect(result.hiddenPaths).toEqual([]);
+    expect(result.tmpfsPaths).toEqual(["/node_modules"]);
+  });
 });

@@ -20,12 +20,12 @@ import { GUEST_GITHUB_REPOS, GUEST_PI_AGENT } from "../src/paths.ts";
 // ---------------------------------------------------------------------------
 
 describe("WORKSPACE_ALWAYS_SHADOWED", () => {
-  it("contains /node_modules", () => {
-    expect(WORKSPACE_ALWAYS_SHADOWED).toContain("/node_modules");
-  });
-
   it("contains /.pi/dungeon.json", () => {
     expect(WORKSPACE_ALWAYS_SHADOWED).toContain("/.pi/dungeon.json");
+  });
+
+  it("does not contain /node_modules (now configurable via tmpfsPaths)", () => {
+    expect(WORKSPACE_ALWAYS_SHADOWED).not.toContain("/node_modules");
   });
 });
 
@@ -49,29 +49,16 @@ describe("PI_AGENT_ALWAYS_SHADOWED", () => {
 describe("shadow predicate for WORKSPACE_ALWAYS_SHADOWED", () => {
   const pred = createShadowPathPredicate(WORKSPACE_ALWAYS_SHADOWED);
 
-  it("blocks /node_modules exactly", () => {
-    expect(pred({ op: "stat", path: "/node_modules" })).toBe(true);
-  });
-
-  it("blocks subpaths of /node_modules", () => {
-    expect(pred({ op: "open", path: "/node_modules/foo" })).toBe(true);
-  });
-
-  it("blocks deeply nested paths under /node_modules", () => {
-    expect(pred({ op: "open", path: "/node_modules/lodash/index.js" })).toBe(true);
-  });
-
   it("blocks /.pi/dungeon.json", () => {
     expect(pred({ op: "stat", path: "/.pi/dungeon.json" })).toBe(true);
   });
 
-  it("allows /src/foo.ts", () => {
-    expect(pred({ op: "stat", path: "/src/foo.ts" })).toBe(false);
+  it("allows /node_modules (no longer hardcoded; use tmpfsPaths config)", () => {
+    expect(pred({ op: "stat", path: "/node_modules" })).toBe(false);
   });
 
-  it("does not block a sibling directory that merely starts with /node_modules text", () => {
-    // Directory boundary must be respected — /node_modules_extra is NOT shadowed.
-    expect(pred({ op: "stat", path: "/node_modules_extra/index.js" })).toBe(false);
+  it("allows /src/foo.ts", () => {
+    expect(pred({ op: "stat", path: "/src/foo.ts" })).toBe(false);
   });
 
   it("does not block /.pi (only the specific dungeon.json file is shadowed)", () => {
@@ -179,5 +166,17 @@ describe("buildMounts", () => {
     expect(mounts["/guest/a"]).toBeDefined();
     expect(mounts["/guest/b"]).toBeDefined();
     expect(pendingMappings).toHaveLength(2);
+  });
+
+  it("does not crash and returns workspace mount when tmpfsPaths is configured", () => {
+    const config = { tmpfsPaths: ["/node_modules"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+  });
+
+  it("does not crash and returns workspace mount when hiddenPaths is configured", () => {
+    const config = { hiddenPaths: ["/.env"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
   });
 });

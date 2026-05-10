@@ -9,6 +9,8 @@ export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): 
     allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
     secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
     mounts: { ...(globalCfg.mounts ?? {}), ...(project.mounts ?? {}) },
+    hiddenPaths: [...(globalCfg.hiddenPaths ?? []), ...(project.hiddenPaths ?? [])],
+    tmpfsPaths: [...(globalCfg.tmpfsPaths ?? []), ...(project.tmpfsPaths ?? [])],
   };
 }
 
