@@ -2,6 +2,7 @@
   "name": "pi-gondolin",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.12.1",
   "description": "Gondolin sandbox extension for pi — runs agent tools inside a micro-VM",
   "type": "module",
   "pi": {
