@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/earendil-works/pi-gondolin/gondolin.schema.json",
-  "title": "Gondolin Config",
-  "description": "Configuration for the pi-gondolin sandbox extension. Used at ~/.pi/agent/gondolin.json (global) and <project>/.pi/gondolin.json (per-project).",
+  "$id": "https://github.com/Jomik/pi-dungeon/dungeon.schema.json",
+  "title": "Dungeon Config",
+  "description": "Configuration for the pi-dungeon sandbox extension. Used at ~/.pi/agent/dungeon.json (global) and <project>/.pi/dungeon.json (per-project).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -28,7 +28,7 @@
         "properties": {
           "keychain": {
             "type": "string",
-            "description": "macOS Keychain account name under service \"pi-gondolin\"."
+            "description": "macOS Keychain account name under service \"pi-dungeon\"."
           },
           "hosts": {
             "type": "array",

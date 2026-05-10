@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# setup-secret.sh — interactively store pi-gondolin secrets in macOS Keychain.
-# Reads available secrets from ~/.pi/agent/gondolin.json.
+# setup-secret.sh — interactively store pi-dungeon secrets in macOS Keychain.
+# Reads available secrets from ~/.pi/agent/dungeon.json.
 
 set -euo pipefail
 
-CONFIG="$HOME/.pi/agent/gondolin.json"
+CONFIG="$HOME/.pi/agent/dungeon.json"
 
 # ---------------------------------------------------------------------------
 # Sanity checks
 # ---------------------------------------------------------------------------
 if [[ ! -f "$CONFIG" ]]; then
-  echo "Error: gondolin.json not found at $CONFIG" >&2
+  echo "Error: dungeon.json not found at $CONFIG" >&2
   exit 1
 fi
 
@@ -157,9 +157,9 @@ esac
 # ---------------------------------------------------------------------------
 # Store in Keychain
 # ---------------------------------------------------------------------------
-echo "Storing in Keychain (service=pi-gondolin, account=$KEYCHAIN_ACCOUNT)..."
+echo "Storing in Keychain (service=pi-dungeon, account=$KEYCHAIN_ACCOUNT)..."
 security add-generic-password \
-  -s "pi-gondolin" \
+  -s "pi-dungeon" \
   -a "$KEYCHAIN_ACCOUNT" \
   -w "$SECRET_VALUE" \
   -U
@@ -168,7 +168,7 @@ unset SECRET_VALUE
 
 echo
 echo "✓ Secret stored."
-echo "  Service : pi-gondolin"
+echo "  Service : pi-dungeon"
 echo "  Account : $KEYCHAIN_ACCOUNT"
 printf "  Hosts   : "
 get_hosts "$SECRET_NAME" | tr '\n' ' '

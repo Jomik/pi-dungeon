@@ -1,6 +1,6 @@
-# pi-gondolin
+# pi-dungeon
 
-Gondolin sandbox extension for [pi](https://github.com/badlogic/pi-mono). Runs agent tools (`bash`, `read`, `write`, `edit`) inside a Gondolin micro-VM while pi itself stays on the host.
+Dungeon sandbox extension for [pi](https://github.com/badlogic/pi-mono). Runs agent tools (`bash`, `read`, `write`, `edit`) inside a Dungeon micro-VM while pi itself stays on the host.
 
 ## Why
 
@@ -12,7 +12,7 @@ Gondolin sandbox extension for [pi](https://github.com/badlogic/pi-mono). Runs a
 ## Architecture
 
 ```
-Host (trusted)                    Gondolin VM (sandboxed)
+Host (trusted)                    Dungeon VM (sandboxed)
 ─────────────────                 ──────────────────────
 pi process                        bash/read/write/edit execution
 ├─ LLM calls (Copilot)           ├─ $CWD (← project dir, same path as host)
@@ -30,7 +30,7 @@ brew install qemu
 ## Setup
 
 ```bash
-cd ~/.pi/pi-gondolin
+cd ~/projects/private/pi-dungeon
 npm install
 
 # Build the VM image (requires Docker)
@@ -39,15 +39,15 @@ npx gondolin build --config build-config.json --output ./image
 
 ## Credentials
 
-Tokens are stored in the macOS Keychain under service `pi-gondolin`. Which accounts to look up and how to format them is entirely driven by `~/.pi/agent/gondolin.json` — no code changes needed to add a new secret.
+Tokens are stored in the macOS Keychain under service `pi-dungeon`. Which accounts to look up and how to format them is entirely driven by `~/.pi/agent/dungeon.json` — no code changes needed to add a new secret.
 
 ```bash
 # GitHub PAT (scoped for pi — separate from `gh auth`)
-security add-generic-password -s "pi-gondolin" -a "github" -w "<token>" -U
+security add-generic-password -s "pi-dungeon" -a "github" -w "<token>" -U
 
 # Atlassian: store base64-encoded credentials (guest adds Basic/Bearer prefix)
 echo -n 'user@example.com:api-token' | base64 | \
-  xargs -I{} security add-generic-password -s "pi-gondolin" -a "atlassian" -w '{}' -U
+  xargs -I{} security add-generic-password -s "pi-dungeon" -a "atlassian" -w '{}' -U
 ```
 
 To rotate, re-run the `security add-generic-password` command with `-U` (update).
@@ -63,8 +63,8 @@ Use `setup-secret.sh` for an interactive prompt:
 
 Config lives at two locations and is merged at startup:
 
-- **Global**: `~/.pi/agent/gondolin.json` — shared across all projects
-- **Per-project**: `<workspace>/.pi/gondolin.json` — project-specific overrides
+- **Global**: `~/.pi/agent/dungeon.json` — shared across all projects
+- **Per-project**: `<workspace>/.pi/dungeon.json` — project-specific overrides
 
 Both files use the same schema:
 
@@ -100,7 +100,7 @@ Both files use the same schema:
 ### Fields
 
 - `allowedHosts` — full list of hosts the VM may reach over HTTPS. There is no built-in allowlist; every allowed host must appear here (in global or per-project config).
-- `secrets.<NAME>.keychain` — keychain account name (looked up under service `pi-gondolin`).
+- `secrets.<NAME>.keychain` — keychain account name (looked up under service `pi-dungeon`).
 - `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
 - `mounts` — additional host directories to mount into the VM.
   - Keys are **absolute guest paths** where the directory appears inside the VM.
@@ -111,7 +111,7 @@ The keychain value is injected as-is via placeholder replacement. Store raw toke
 
 If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
 
-The `.pi` directory is **shadowed** in the sandbox — the VM cannot see or modify `.pi/gondolin.json` or anything else under `.pi/`.
+The `.pi` directory is **shadowed** in the sandbox — the VM cannot see or modify `.pi/dungeon.json` or anything else under `.pi/`.
 
 **Example per-project uses:**
 
@@ -122,7 +122,7 @@ The `.pi` directory is **shadowed** in the sandbox — the VM cannot see or modi
 ## Usage
 
 ```bash
-pi -e ~/.pi/pi-gondolin
+pi -e ~/projects/private/pi-dungeon
 ```
 
 ## What's sandboxed
@@ -146,7 +146,7 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 
 | Guest path | Host path | Mode |
 |------------|-----------|------|
-| `$CWD` | `$CWD` | read-write (ShadowProvider; `/node_modules` and `/.pi/gondolin.json` shadowed) |
+| `$CWD` | `$CWD` | read-write (ShadowProvider; `/node_modules` and `/.pi/dungeon.json` shadowed) |
 | `/root/.pi/agent` | `~/.pi/agent` | read-write (ShadowProvider; `/auth.json` and `/sessions` shadowed) |
 | `/root/.config/jj` | `~/.config/jj` | read-only |
 | `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |

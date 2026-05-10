@@ -1,7 +1,7 @@
 /**
- * Pi + Gondolin Sandbox Extension
+ * Pi + Dungeon Sandbox Extension
  *
- * Overrides pi's bash/read/write/edit tools to execute inside a Gondolin
+ * Overrides pi's bash/read/write/edit tools to execute inside a Dungeon
  * micro-VM. Pi runs on the host; only agent-directed operations are sandboxed.
  *
  * Features:
@@ -45,20 +45,20 @@ const GUEST_PI_AGENT = "/root/.pi/agent";
 const GUEST_JJ_CONFIG = "/root/.config/jj";
 const GUEST_GITHUB_REPOS = "/tmp/pi-github-repos";
 const OBSIDIAN_BRIDGE_PORT = 57843;
-const KEYCHAIN_SERVICE = "pi-gondolin";
+const KEYCHAIN_SERVICE = "pi-dungeon";
 
 interface SecretConfig {
   keychain: string; // keychain account name
   hosts: string[]; // hosts that receive this secret
 }
 
-interface GondolinConfig {
+interface DungeonConfig {
   allowedHosts?: string[];
   secrets?: Record<string, SecretConfig>;
   mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
 }
 
-export function mergeConfigs(globalCfg: GondolinConfig, project: GondolinConfig): GondolinConfig {
+export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): DungeonConfig {
   return {
     allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
     secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
@@ -103,7 +103,7 @@ export function toGuestPath(mappings: PathMapping[], localPath: string): string 
   throw new Error(`path not accessible in sandbox: ${localPath}`);
 }
 
-function createGondolinReadOps(vm: VM, mappings: PathMapping[]): ReadOperations {
+function createDungeonReadOps(vm: VM, mappings: PathMapping[]): ReadOperations {
   return {
     readFile: async (p) => {
       const guestPath = toGuestPath(mappings, p);
@@ -134,7 +134,7 @@ function createGondolinReadOps(vm: VM, mappings: PathMapping[]): ReadOperations 
   };
 }
 
-function createGondolinWriteOps(vm: VM, mappings: PathMapping[]): WriteOperations {
+function createDungeonWriteOps(vm: VM, mappings: PathMapping[]): WriteOperations {
   return {
     writeFile: async (p, content) => {
       const guestPath = toGuestPath(mappings, p);
@@ -160,9 +160,9 @@ function createGondolinWriteOps(vm: VM, mappings: PathMapping[]): WriteOperation
   };
 }
 
-function createGondolinEditOps(vm: VM, mappings: PathMapping[]): EditOperations {
-  const r = createGondolinReadOps(vm, mappings);
-  const w = createGondolinWriteOps(vm, mappings);
+function createDungeonEditOps(vm: VM, mappings: PathMapping[]): EditOperations {
+  const r = createDungeonReadOps(vm, mappings);
+  const w = createDungeonWriteOps(vm, mappings);
   return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
 }
 
@@ -175,7 +175,7 @@ function sanitizeEnv(env?: NodeJS.ProcessEnv): Record<string, string> | undefine
   return out;
 }
 
-function createGondolinBashOps(vm: VM, mappings: PathMapping[]): BashOperations {
+function createDungeonBashOps(vm: VM, mappings: PathMapping[]): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout, env }) => {
       const guestCwd = toGuestPath(mappings, cwd);
@@ -253,21 +253,21 @@ export default function (pi: ExtensionAPI) {
     if (vmStarting) return vmStarting;
 
     vmStarting = (async () => {
-      ctx?.ui.setStatus("gondolin", ctx.ui.theme.fg("accent", "Gondolin: starting VM..."));
+      ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
 
-      // Load global config (~/.pi/agent/gondolin.json)
-      let globalConfig: GondolinConfig = {};
+      // Load global config (~/.pi/agent/dungeon.json)
+      let globalConfig: DungeonConfig = {};
       try {
-        const globalConfigPath = path.join(os.homedir(), ".pi/agent/gondolin.json");
+        const globalConfigPath = path.join(os.homedir(), ".pi/agent/dungeon.json");
         globalConfig = JSON.parse(fs.readFileSync(globalConfigPath, "utf-8"));
       } catch {
         // No config file or invalid — use defaults only
       }
 
-      // Load per-project config (.pi/gondolin.json in workspace root)
-      let projectConfig: GondolinConfig = {};
+      // Load per-project config (.pi/dungeon.json in workspace root)
+      let projectConfig: DungeonConfig = {};
       try {
-        const projectConfigPath = path.join(localCwd, ".pi/gondolin.json");
+        const projectConfigPath = path.join(localCwd, ".pi/dungeon.json");
         projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
       } catch {
         // No project config — use defaults only
@@ -294,7 +294,7 @@ export default function (pi: ExtensionAPI) {
       fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
 
       const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
-      const cacheDir = path.join(home, ".cache/pi-gondolin/node_modules", cwdHash);
+      const cacheDir = path.join(home, ".cache/pi-dungeon/node_modules", cwdHash);
       fs.mkdirSync(cacheDir, { recursive: true });
 
       // Build additional VFS mounts and path mappings from merged config
@@ -331,7 +331,7 @@ export default function (pi: ExtensionAPI) {
           mounts: {
             ...projectMounts,
             [GUEST_WORKSPACE]: new ShadowProvider(new RealFSProvider(localCwd), {
-              shouldShadow: createShadowPathPredicate(["/node_modules", "/.pi/gondolin.json"]),
+              shouldShadow: createShadowPathPredicate(["/node_modules", "/.pi/dungeon.json"]),
               writeMode: "tmpfs",
               tmpfs: new RealFSProvider(cacheDir),
             }),
@@ -345,7 +345,7 @@ export default function (pi: ExtensionAPI) {
       });
 
       // Disable host-key checking for SSH-allowed hosts inside the guest.
-      // Gondolin's SSH proxy presents its own host key, which won't match
+      // Dungeon's SSH proxy presents its own host key, which won't match
       // the real github.com key the guest might expect.
       let pubkeyLines: string[] = [];
       try {
@@ -401,8 +401,8 @@ export default function (pi: ExtensionAPI) {
       for (const m of pendingMappings) mappings.push(m);
       vm = created;
 
-      ctx?.ui.setStatus("gondolin", ctx.ui.theme.fg("accent", "Gondolin: running"));
-      ctx?.ui.notify("Gondolin VM ready", "info");
+      ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
+      ctx?.ui.notify("Dungeon VM ready", "info");
       return created;
     })().catch((err) => {
       vmStarting = null;
@@ -449,7 +449,7 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const activeVm = await ensureVm(ctx);
       const tool = createReadTool(localCwd, {
-        operations: createGondolinReadOps(activeVm, mappings),
+        operations: createDungeonReadOps(activeVm, mappings),
       });
       return tool.execute(id, params, signal, onUpdate);
     },
@@ -460,7 +460,7 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const activeVm = await ensureVm(ctx);
       const tool = createWriteTool(localCwd, {
-        operations: createGondolinWriteOps(activeVm, mappings),
+        operations: createDungeonWriteOps(activeVm, mappings),
       });
       return tool.execute(id, params, signal, onUpdate);
     },
@@ -471,7 +471,7 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const activeVm = await ensureVm(ctx);
       const tool = createEditTool(localCwd, {
-        operations: createGondolinEditOps(activeVm, mappings),
+        operations: createDungeonEditOps(activeVm, mappings),
       });
       return tool.execute(id, params, signal, onUpdate);
     },
@@ -482,7 +482,7 @@ export default function (pi: ExtensionAPI) {
     async execute(id, params, signal, onUpdate, ctx) {
       const activeVm = await ensureVm(ctx);
       const tool = createBashTool(localCwd, {
-        operations: createGondolinBashOps(activeVm, mappings),
+        operations: createDungeonBashOps(activeVm, mappings),
       });
       return tool.execute(id, params, signal, onUpdate);
     },
@@ -490,14 +490,14 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("user_bash", async (_event, _ctx) => {
     const activeVm = await ensureVm();
-    return { operations: createGondolinBashOps(activeVm, mappings) };
+    return { operations: createDungeonBashOps(activeVm, mappings) };
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     await ensureVm(ctx);
     const modified = event.systemPrompt.replaceAll(
       `Current working directory: ${localCwd}`,
-      `Current working directory: ${GUEST_WORKSPACE} (Gondolin sandbox, mounted from host: ${localCwd})`,
+      `Current working directory: ${GUEST_WORKSPACE} (Dungeon sandbox, mounted from host: ${localCwd})`,
     );
     return { systemPrompt: modified };
   });
