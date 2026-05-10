@@ -17,7 +17,7 @@ Host (trusted)                    Dungeon VM (sandboxed)
 pi process                        bash/read/write/edit execution
 ├─ LLM calls (Copilot)           ├─ $CWD (← project dir, same path as host)
 ├─ extensions                     ├─ /root/.pi/agent (← host ~/.pi/agent)
-├─ credentials (keychain)         ├─ /root/.config/jj (← host ~/.config/jj, read-only)
+├─ credentials (keychain)         ├─ ~/.config/jj (← host ~/.config/jj, read-only)
 └─ skill/agent reads              └─ tools: rg, fd, jj, gh, git, node
 ```
 
@@ -148,7 +148,7 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 |------------|-----------|------|
 | `$CWD` | `$CWD` | read-write (ShadowProvider; `/node_modules` and `/.pi/dungeon.json` shadowed) |
 | `/root/.pi/agent` | `~/.pi/agent` | read-write (ShadowProvider; `/auth.json` and `/sessions` shadowed) |
-| `/root/.config/jj` | `~/.config/jj` | read-only |
+| `~/.config/jj` | `~/.config/jj` | read-only |
 | `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |
 
 Additional mounts are configured via `mounts` in global or per-project config.

@@ -8,6 +8,7 @@
  */
 
 import os from "node:os";
+import path from "node:path";
 import { createShadowPathPredicate } from "@earendil-works/gondolin";
 import { describe, expect, it } from "vitest";
 
@@ -125,7 +126,7 @@ describe("buildMounts", () => {
 
   it("returns a mounts entry for the jj config guest path", () => {
     const { mounts } = buildMounts({}, localCwd, guestWorkspace, home);
-    expect(mounts["/root/.config/jj"]).toBeDefined();
+    expect(mounts[path.join(home, ".config/jj")]).toBeDefined();
   });
 
   it("returns empty pendingMappings when no custom mounts are configured", () => {

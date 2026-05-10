@@ -21,9 +21,6 @@ import {
 import { GUEST_GITHUB_REPOS, GUEST_PI_AGENT } from "./paths.ts";
 import type { DungeonConfig, PathMapping } from "./types.ts";
 
-/** Guest path for the host jj config directory. */
-const GUEST_JJ_CONFIG = "/root/.config/jj";
-
 /**
  * Paths inside the workspace that are always shadowed (hidden from the VM).
  * node_modules uses tmpfs write overlay; dungeon.json contains the VM policy
@@ -96,7 +93,8 @@ export function buildMounts(
       shouldShadow: createShadowPathPredicate(PI_AGENT_ALWAYS_SHADOWED),
     }),
     // jj config: read-only so the guest inherits host identity settings.
-    [GUEST_JJ_CONFIG]: new ReadonlyProvider(new RealFSProvider(path.join(home, ".config/jj"))),
+    // Mounted at the same path as host so ~ resolves correctly (HOME = host homedir in guest).
+    [path.join(home, ".config/jj")]: new ReadonlyProvider(new RealFSProvider(path.join(home, ".config/jj"))),
     // Shared GitHub repo cache: read-only.
     [GUEST_GITHUB_REPOS]: new ReadonlyProvider(new RealFSProvider("/tmp/pi-github-repos")),
   };
