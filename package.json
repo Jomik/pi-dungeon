@@ -4,6 +4,12 @@
   "private": true,
   "packageManager": "npm@11.12.1",
   "description": "Dungeon sandbox extension for pi — runs agent tools inside a micro-VM",
+  "license": "MIT",
+  "author": "Jonas Damtoft",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jomik/pi-dungeon.git"
+  },
   "type": "module",
   "pi": {
     "extensions": [
