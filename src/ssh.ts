@@ -45,13 +45,13 @@ export function buildSshProxyConfig(home: string): SshOptions {
  * 2. Writes an SSH config that disables host-key checking for github.com
  *    (required because the Dungeon proxy presents a synthetic key).
  *
- * All paths use `home` (the host homedir) because the guest's HOME is set to
- * the same value.
+ * SSH config is written to /root/.ssh/ because OpenSSH resolves ~ from the
+ * passwd entry (root), not $HOME.
  *
  * @throws If the guest exec command fails.
  */
-export async function setupSshInGuest(vm: VM, home: string): Promise<void> {
-  const guestSshDir = path.join(home, ".ssh");
+export async function setupSshInGuest(vm: VM, _home: string): Promise<void> {
+  const guestSshDir = "/root/.ssh";
 
   const result = await vm.exec([
     "/bin/sh",
