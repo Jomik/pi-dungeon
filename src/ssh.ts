@@ -38,6 +38,24 @@ export function buildSshProxyConfig(home: string): SshOptions {
 }
 
 /**
+ * Run one-time Git configuration inside a freshly created VM guest.
+ *
+ * Marks all directories as safe to work around the "dubious ownership" error.
+ * The guest runs as root but VFS-mounted files report the host user's uid,
+ * which git treats as a security risk. This is safe because the VM is
+ * already sandboxed.
+ *
+ * @throws If the guest exec command fails.
+ */
+export async function setupGitInGuest(vm: VM): Promise<void> {
+  const result = await vm.exec(["/bin/sh", "-c", "git config --global --add safe.directory '*'"]);
+
+  if (!result.ok) {
+    throw new Error(`Git setup failed (${result.exitCode}): ${result.stderr}`);
+  }
+}
+
+/**
  * Run one-time SSH initialisation inside a freshly created VM guest.
  *
  * Performs:

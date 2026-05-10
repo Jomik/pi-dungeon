@@ -22,7 +22,7 @@ import { buildTcpConfig, DNS_CONFIG } from "./network.ts";
 import { installObsidianShim, OBSIDIAN_BRIDGE_PORT } from "./obsidian.ts";
 import { createPathMappings } from "./paths.ts";
 import { resolveHttpHooks } from "./secrets.ts";
-import { buildSshProxyConfig, setupSshInGuest } from "./ssh.ts";
+import { buildSshProxyConfig, setupGitInGuest, setupSshInGuest } from "./ssh.ts";
 import { computeGuestWorkspace } from "./tools.ts";
 import type { PathMapping } from "./types.ts";
 
@@ -151,6 +151,7 @@ export class DungeonVm {
       vfs: { mounts },
     });
 
+    await setupGitInGuest(created);
     await setupSshInGuest(created, this.home);
     await installObsidianShim(created);
 
