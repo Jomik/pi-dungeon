@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeConfigs } from "../src/config.ts";
+import { mergeConfigs, validateConfig } from "../src/config.ts";
 
 // ---------------------------------------------------------------------------
 // mergeConfigs
@@ -110,5 +110,87 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs({}, { tmpfsPaths: ["/node_modules"] });
     expect(result.hiddenPaths).toEqual([]);
     expect(result.tmpfsPaths).toEqual(["/node_modules"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateConfig
+// ---------------------------------------------------------------------------
+
+describe("validateConfig", () => {
+  const fp = "/fake/dungeon.json";
+
+  it("accepts a valid full config", () => {
+    const cfg = validateConfig(
+      {
+        allowedHosts: ["example.com"],
+        secrets: { TOKEN: { keychain: "my-keychain", hosts: ["example.com"] } },
+        mounts: { "/guest/data": { path: "/host/data", mode: "ro" } },
+        hiddenPaths: ["/.env"],
+        tmpfsPaths: ["/tmp"],
+      },
+      fp,
+    );
+    expect(cfg.allowedHosts).toEqual(["example.com"]);
+  });
+
+  it("accepts an empty object", () => {
+    expect(() => validateConfig({}, fp)).not.toThrow();
+  });
+
+  it("accepts a config with only $schema", () => {
+    expect(() => validateConfig({ $schema: "https://example.com/schema.json" }, fp)).not.toThrow();
+  });
+
+  it("throws on non-object (array)", () => {
+    expect(() => validateConfig([], fp)).toThrow(/Invalid dungeon config at \/fake\/dungeon\.json/);
+  });
+
+  it("throws on non-object (string)", () => {
+    expect(() => validateConfig("oops", fp)).toThrow(/Invalid dungeon config at \/fake\/dungeon\.json/);
+  });
+
+  it("throws on unknown top-level key", () => {
+    expect(() => validateConfig({ unknownField: true }, fp)).toThrow(/unknown field "unknownField"/);
+  });
+
+  it("throws on allowedHosts being non-array", () => {
+    expect(() => validateConfig({ allowedHosts: "example.com" }, fp)).toThrow(/"allowedHosts" must be an array/);
+  });
+
+  it("throws on allowedHosts containing non-strings", () => {
+    expect(() => validateConfig({ allowedHosts: [42] }, fp)).toThrow(/"allowedHosts\[0\]" must be a string/);
+  });
+
+  it("throws on secrets entry missing keychain", () => {
+    expect(() => validateConfig({ secrets: { TOKEN: { hosts: ["example.com"] } } }, fp)).toThrow(
+      /"secrets\.TOKEN\.keychain" must be a string/,
+    );
+  });
+
+  it("throws on secrets entry missing hosts", () => {
+    expect(() => validateConfig({ secrets: { TOKEN: { keychain: "k" } } }, fp)).toThrow(
+      /"secrets\.TOKEN\.hosts" must be an array/,
+    );
+  });
+
+  it("throws on mounts entry missing path", () => {
+    expect(() => validateConfig({ mounts: { "/guest": { mode: "ro" } } }, fp)).toThrow(
+      /"mounts\.\/guest\.path" must be a string/,
+    );
+  });
+
+  it("throws on mounts entry with invalid mode", () => {
+    expect(() => validateConfig({ mounts: { "/guest": { path: "/host", mode: "rx" } } }, fp)).toThrow(
+      /"mounts\.\/guest\.mode" must be "ro" or "rw"/,
+    );
+  });
+
+  it("throws on hiddenPaths being non-array", () => {
+    expect(() => validateConfig({ hiddenPaths: "/secret" }, fp)).toThrow(/"hiddenPaths" must be an array/);
+  });
+
+  it("throws on tmpfsPaths containing non-strings", () => {
+    expect(() => validateConfig({ tmpfsPaths: [false] }, fp)).toThrow(/"tmpfsPaths\[0\]" must be a string/);
   });
 });

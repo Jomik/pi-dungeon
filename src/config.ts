@@ -4,6 +4,110 @@ import path from "node:path";
 
 import type { DungeonConfig } from "./types.ts";
 
+const KNOWN_TOP_LEVEL_KEYS = new Set(["$schema", "allowedHosts", "secrets", "mounts", "hiddenPaths", "tmpfsPaths"]);
+
+export function validateConfig(config: unknown, filePath: string): DungeonConfig {
+  const err = (reason: string): never => {
+    throw new Error(`Invalid dungeon config at ${filePath}: ${reason}`);
+  };
+
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    err("top level must be an object");
+  }
+
+  const obj = config as Record<string, unknown>;
+
+  // Check for unknown top-level keys
+  for (const key of Object.keys(obj)) {
+    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
+      err(`unknown field "${key}"`);
+    }
+  }
+
+  // allowedHosts
+  if ("allowedHosts" in obj) {
+    if (!Array.isArray(obj.allowedHosts)) {
+      err(`"allowedHosts" must be an array`);
+    }
+    for (let i = 0; i < (obj.allowedHosts as unknown[]).length; i++) {
+      if (typeof (obj.allowedHosts as unknown[])[i] !== "string") {
+        err(`"allowedHosts[${i}]" must be a string`);
+      }
+    }
+  }
+
+  // secrets
+  if ("secrets" in obj) {
+    if (typeof obj.secrets !== "object" || obj.secrets === null || Array.isArray(obj.secrets)) {
+      err(`"secrets" must be an object`);
+    }
+    const secrets = obj.secrets as Record<string, unknown>;
+    for (const [key, entry] of Object.entries(secrets)) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        err(`"secrets.${key}" must be an object`);
+      }
+      const e = entry as Record<string, unknown>;
+      if (typeof e.keychain !== "string") {
+        err(`"secrets.${key}.keychain" must be a string`);
+      }
+      if (!Array.isArray(e.hosts)) {
+        err(`"secrets.${key}.hosts" must be an array`);
+      }
+      for (let i = 0; i < (e.hosts as unknown[]).length; i++) {
+        if (typeof (e.hosts as unknown[])[i] !== "string") {
+          err(`"secrets.${key}.hosts[${i}]" must be a string`);
+        }
+      }
+    }
+  }
+
+  // mounts
+  if ("mounts" in obj) {
+    if (typeof obj.mounts !== "object" || obj.mounts === null || Array.isArray(obj.mounts)) {
+      err(`"mounts" must be an object`);
+    }
+    const mounts = obj.mounts as Record<string, unknown>;
+    for (const [key, entry] of Object.entries(mounts)) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        err(`"mounts.${key}" must be an object`);
+      }
+      const e = entry as Record<string, unknown>;
+      if (typeof e.path !== "string") {
+        err(`"mounts.${key}.path" must be a string`);
+      }
+      if ("mode" in e && e.mode !== "ro" && e.mode !== "rw") {
+        err(`"mounts.${key}.mode" must be "ro" or "rw"`);
+      }
+    }
+  }
+
+  // hiddenPaths
+  if ("hiddenPaths" in obj) {
+    if (!Array.isArray(obj.hiddenPaths)) {
+      err(`"hiddenPaths" must be an array`);
+    }
+    for (let i = 0; i < (obj.hiddenPaths as unknown[]).length; i++) {
+      if (typeof (obj.hiddenPaths as unknown[])[i] !== "string") {
+        err(`"hiddenPaths[${i}]" must be a string`);
+      }
+    }
+  }
+
+  // tmpfsPaths
+  if ("tmpfsPaths" in obj) {
+    if (!Array.isArray(obj.tmpfsPaths)) {
+      err(`"tmpfsPaths" must be an array`);
+    }
+    for (let i = 0; i < (obj.tmpfsPaths as unknown[]).length; i++) {
+      if (typeof (obj.tmpfsPaths as unknown[])[i] !== "string") {
+        err(`"tmpfsPaths[${i}]" must be a string`);
+      }
+    }
+  }
+
+  return obj as unknown as DungeonConfig;
+}
+
 export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): DungeonConfig {
   return {
     allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
@@ -14,24 +118,33 @@ export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): 
   };
 }
 
-export function loadConfig(localCwd: string): DungeonConfig {
-  // Load global config (~/.pi/agent/dungeon.json)
-  let globalConfig: DungeonConfig = {};
+function readConfig(filePath: string): DungeonConfig {
+  let raw: string;
   try {
-    const globalConfigPath = path.join(os.homedir(), ".pi/agent/dungeon.json");
-    globalConfig = JSON.parse(fs.readFileSync(globalConfigPath, "utf-8"));
-  } catch {
-    // No config file or invalid — use defaults only
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw e;
   }
 
-  // Load per-project config (.pi/dungeon.json in workspace root)
-  let projectConfig: DungeonConfig = {};
+  let parsed: unknown;
   try {
-    const projectConfigPath = path.join(localCwd, ".pi/dungeon.json");
-    projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
-  } catch {
-    // No project config — use defaults only
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`Invalid dungeon config at ${filePath}: ${(e as Error).message}`);
   }
+
+  return validateConfig(parsed, filePath);
+}
+
+export function loadConfig(localCwd: string): DungeonConfig {
+  const globalConfigPath = path.join(os.homedir(), ".pi/agent/dungeon.json");
+  const projectConfigPath = path.join(localCwd, ".pi/dungeon.json");
+
+  const globalConfig = readConfig(globalConfigPath);
+  const projectConfig = readConfig(projectConfigPath);
 
   return mergeConfigs(globalConfig, projectConfig);
 }
