@@ -14,6 +14,7 @@ import {
   createShadowPathPredicate,
   ReadonlyProvider,
   RealFSProvider,
+  type ShadowPredicate,
   ShadowProvider,
   type VirtualProvider,
 } from "@earendil-works/gondolin";
@@ -34,6 +35,72 @@ export const WORKSPACE_ALWAYS_SHADOWED = ["/.pi/dungeon.json"];
  * should not leak into the sandbox.
  */
 export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions"];
+
+/**
+ * Create a shadow predicate that supports simple glob patterns.
+ *
+ * Pattern types:
+ * - "/path/to/dir" — exact prefix match (matches path and all children)
+ * - "**\/name" — matches a path segment at any depth (and all children)
+ * - "/path/with*glob" — "*" matches any characters within the last segment
+ */
+export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredicate {
+  // Normalise: ensure leading /, remove trailing /
+  const normalise = (p: string): string => {
+    let s = p.startsWith("/") ? p : "/" + p;
+    s = s.replace(/\/+$/, "");
+    return s || "/";
+  };
+
+  type Matcher = (filePath: string) => boolean;
+  const matchers: Matcher[] = [];
+
+  for (const raw of patterns) {
+    if (!raw || raw === "**" || raw === "**/") {
+      // Degenerate patterns — skip to avoid shadowing everything.
+      continue;
+    }
+
+    if (raw.startsWith("**/")) {
+      // Double-star prefix: match a segment name at any depth.
+      const segment = raw.slice(3);
+      if (!segment) continue;
+      matchers.push((filePath: string) => {
+        const parts = filePath.split("/").filter(Boolean);
+        return parts.some((p) => p === segment);
+      });
+    } else if (raw.includes("*")) {
+      // Wildcard pattern: convert `*` to `[^/]+`, escape rest.
+      const norm = normalise(raw);
+      const regexSource = norm
+        .split("*")
+        .map((chunk) => chunk.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^/]+");
+      const re = new RegExp(`^${regexSource}$`);
+      matchers.push((filePath: string) => {
+        if (re.test(filePath)) return true;
+        // Also match children: path starts with a matching prefix + "/"
+        const parts = filePath.split("/");
+        for (let i = parts.length; i > 0; i--) {
+          const prefix = parts.slice(0, i).join("/") || "/";
+          if (re.test(prefix)) return true;
+        }
+        return false;
+      });
+    } else {
+      // Plain prefix pattern — same semantics as gondolin.
+      const norm = normalise(raw);
+      matchers.push((filePath: string) => {
+        return filePath === norm || filePath.startsWith(norm + "/");
+      });
+    }
+  }
+
+  return (ctx) => {
+    const filePath = path.posix.normalize(ctx.path.startsWith("/") ? ctx.path : "/" + ctx.path);
+    return matchers.some((m) => m(filePath));
+  };
+}
 
 export interface MountsResult {
   /** VFS mount map ready to pass to VM.create vfs.mounts. */
@@ -75,7 +142,7 @@ export function buildMounts(
     const cacheDir = path.join(home, ".cache/pi-dungeon/workspace", cwdHash);
     fs.mkdirSync(cacheDir, { recursive: true });
     workspaceBackend = new ShadowProvider(workspaceBackend, {
-      shouldShadow: createShadowPathPredicate(tmpfsPaths),
+      shouldShadow: createGlobShadowPathPredicate(tmpfsPaths),
       writeMode: "tmpfs",
       tmpfs: new RealFSProvider(cacheDir),
     });
@@ -84,8 +151,10 @@ export function buildMounts(
   // Layer 3 (outermost): deny layer for security-critical paths that must
   // never be visible to the guest regardless of user config.
   const hiddenPaths = config.hiddenPaths ?? [];
+  const alwaysShadowed = createShadowPathPredicate(WORKSPACE_ALWAYS_SHADOWED);
+  const userHidden = createGlobShadowPathPredicate(hiddenPaths);
   const workspaceMount = new ShadowProvider(workspaceBackend, {
-    shouldShadow: createShadowPathPredicate([...WORKSPACE_ALWAYS_SHADOWED, ...hiddenPaths]),
+    shouldShadow: hiddenPaths.length > 0 ? (ctx) => alwaysShadowed(ctx) || userHidden(ctx) : alwaysShadowed,
   });
 
   // Build additional mounts and path mappings from user config.
