@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { mergeConfigs, validateConfig } from "../src/config.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { collectAncestorConfigs, loadConfig, mergeConfigs, validateConfig } from "../src/config.ts";
 
 // ---------------------------------------------------------------------------
 // mergeConfigs

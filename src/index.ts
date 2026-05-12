@@ -127,7 +127,14 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Dungeon re-enabled — tools run in sandbox", "info");
       } else {
         const status = dungeonVm.bypassed ? "bypassed (host)" : "active (sandboxed)";
-        ctx.ui.notify(`Dungeon status: ${status}. Use /dungeon enter or /dungeon exit`, "info");
+        const sources = dungeonVm.configSources;
+        const home = os.homedir();
+        if (sources.length > 0) {
+          const display = sources.map((s) => s.replace(home, "~")).join("\n  ");
+          ctx.ui.notify(`Dungeon: ${status}\nConfig sources:\n  ${display}`, "info");
+        } else {
+          ctx.ui.notify(`Dungeon: ${status}\nNo config files loaded`, "info");
+        }
       }
     },
   });

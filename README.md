@@ -61,12 +61,13 @@ Use `setup-secret.sh` for an interactive prompt:
 
 ## Configuration
 
-Config lives at two locations and is merged at startup:
+Config is loaded from up to three tiers and merged at startup:
 
 - **Global**: `~/.pi/agent/dungeon.json` — shared across all projects
+- **Ancestors**: `.pi/dungeon.json` files in directories between `$HOME` and the workspace
 - **Per-project**: `<workspace>/.pi/dungeon.json` — project-specific overrides
 
-Both files use the same schema:
+All tiers use the same schema:
 
 ```json
 {
@@ -88,6 +89,10 @@ Both files use the same schema:
     "/shared-libs": { "path": "~/code/shared-libs", "mode": "ro" },
     "/other-repo":  { "path": "~/code/other-repo",  "mode": "rw" }
   },
+  "env": {
+    "NODE_ENV": "development",
+    "MY_VAR": "value"
+  },
   "hiddenPaths": ["/.env", "/.env.*"],
   "tmpfsPaths": ["/node_modules", "/.venv"]
 }
@@ -98,14 +103,52 @@ Both files use the same schema:
 - `allowedHosts` — concatenated (both lists apply)
 - `secrets` — merged; per-project wins on key conflict
 - `mounts` — merged; per-project wins on key conflict
+- `env` — merged; per-project wins on key conflict
 - `hiddenPaths` — concatenated
 - `tmpfsPaths` — concatenated
+
+### Configuration Resolution
+
+Configs are loaded and merged in this order (later wins on key conflict for objects; arrays are concatenated):
+
+1. **Global** — `~/.pi/agent/dungeon.json`
+2. **Ancestors** — `.pi/dungeon.json` in each directory between `$HOME` and the workspace (outermost first)
+3. **Per-project** — `<workspace>/.pi/dungeon.json`
+
+For example, with workspace `~/projects/work/my-app`:
+
+| Priority | Path |
+|----------|------|
+| 1 (lowest) | `~/.pi/agent/dungeon.json` |
+| 2 | `~/projects/.pi/dungeon.json` |
+| 3 | `~/projects/work/.pi/dungeon.json` |
+| 4 (highest) | `~/projects/work/my-app/.pi/dungeon.json` |
+
+Symlinked directories and symlinked config files are skipped for security.
+
+Use `/dungeon` (no subcommand) to see which config files are loaded.
+
+### Environment Variables
+
+Set shell environment variables inside the dungeon VM:
+
+```json
+{
+  "env": {
+    "NODE_ENV": "development",
+    "MY_VAR": "value"
+  }
+}
+```
+
+Global and per-project are merged; per-project wins on key conflict.
 
 ### Fields
 
 - `allowedHosts` — full list of hosts the VM may reach over HTTPS. There is no built-in allowlist; every allowed host must appear here (in global or per-project config).
 - `secrets.<NAME>.keychain` — keychain account name (looked up under service `pi-dungeon`).
 - `secrets.<NAME>.hosts` — hosts that receive this secret in their `Authorization` header.
+- `env` — key/value map of environment variables injected into every bash session inside the VM. Global and ancestor values are merged with per-project; per-project wins on key conflict.
 - `mounts` — additional host directories to mount into the VM.
   - Keys are **absolute guest paths** where the directory appears inside the VM.
   - `path` — host path; supports `~` expansion.

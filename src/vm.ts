@@ -218,6 +218,11 @@ export class DungeonVm {
 
     const { config, sources: configSources } = loadConfig(this.localCwd);
     this.configSources = configSources;
+    if (configSources.length > 0 && ctx) {
+      const home = os.homedir();
+      const display = configSources.map((s) => s.replace(home, "~")).join(", ");
+      ctx.ui.notify(`Dungeon config: ${display}`, "info");
+    }
     const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
     const env = { ...(config.env ?? {}), ...proxyEnv };
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);
