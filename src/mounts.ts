@@ -34,7 +34,7 @@ export const WORKSPACE_ALWAYS_SHADOWED = ["/.pi/dungeon.json"];
  * auth.json holds host credentials; sessions holds inter-session state that
  * should not leak into the sandbox.
  */
-export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions"];
+export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions", "/dungeon.json"];
 
 /**
  * Create a shadow predicate that supports simple glob patterns.
