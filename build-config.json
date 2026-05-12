@@ -23,7 +23,8 @@
       "make",
       "gcc",
       "musl-dev",
-      "dotnet10-sdk"
+      "dotnet10-sdk",
+      "jq"
     ]
   },
   "postBuild": {
