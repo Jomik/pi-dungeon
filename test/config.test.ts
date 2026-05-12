@@ -224,3 +224,217 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ env: { FOO: 42 } }, fp)).toThrow(/"env\.FOO" must be a string/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// collectAncestorConfigs
+// ---------------------------------------------------------------------------
+
+describe("collectAncestorConfigs", () => {
+  let tmpHome: string;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tmpHome) {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  function setup() {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-test-home-"));
+    vi.spyOn(os, "homedir").mockReturnValue(tmpHome);
+    return tmpHome;
+  }
+
+  function writeJson(filePath: string, data: object) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data));
+  }
+
+  it("finds ancestor .pi/dungeon.json files in outermost-first order", () => {
+    const home = setup();
+    // Structure:
+    //   home/projects/.pi/dungeon.json
+    //   home/projects/work/.pi/dungeon.json
+    //   home/projects/work/my-app/  <- workspace
+    const projectsConfig = path.join(home, "projects", ".pi", "dungeon.json");
+    const workConfig = path.join(home, "projects", "work", ".pi", "dungeon.json");
+    writeJson(projectsConfig, { allowedHosts: ["projects.example.com"] });
+    writeJson(workConfig, { allowedHosts: ["work.example.com"] });
+    const workspace = path.join(home, "projects", "work", "my-app");
+    fs.mkdirSync(workspace, { recursive: true });
+
+    const results = collectAncestorConfigs(workspace);
+
+    expect(results).toEqual([projectsConfig, workConfig]);
+  });
+
+  it("stops at $HOME — does not check $HOME/.pi/dungeon.json", () => {
+    const home = setup();
+    const homeConfig = path.join(home, ".pi", "dungeon.json");
+    writeJson(homeConfig, { allowedHosts: ["home.example.com"] });
+    const workspace = path.join(home, "projects", "my-app");
+    fs.mkdirSync(workspace, { recursive: true });
+    // Also add a config at the projects level to confirm the walk works at all
+    const projectsConfig = path.join(home, "projects", ".pi", "dungeon.json");
+    writeJson(projectsConfig, { allowedHosts: ["projects.example.com"] });
+
+    const results = collectAncestorConfigs(workspace);
+
+    expect(results).toContain(projectsConfig);
+    expect(results).not.toContain(homeConfig);
+  });
+
+  it("skips symlinked directories", () => {
+    const home = setup();
+    // Create a real dir with a config, then symlink it into the ancestor chain
+    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-test-real-"));
+    try {
+      writeJson(path.join(realDir, ".pi", "dungeon.json"), { allowedHosts: ["real.example.com"] });
+      // Ancestor chain: home/projects -> symlink -> realDir
+      const projectsParent = path.join(home, "projects");
+      fs.mkdirSync(projectsParent, { recursive: true });
+      const symlinkDir = path.join(projectsParent, "linked");
+      fs.symlinkSync(realDir, symlinkDir);
+      const workspace = path.join(symlinkDir, "my-app");
+      fs.mkdirSync(workspace, { recursive: true });
+
+      const results = collectAncestorConfigs(workspace);
+
+      // symlinkDir is a symlink, so its config should be skipped
+      expect(results).not.toContain(path.join(symlinkDir, ".pi", "dungeon.json"));
+    } finally {
+      fs.rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips symlinked .pi/dungeon.json files", () => {
+    const home = setup();
+    const workspace = path.join(home, "projects", "my-app");
+    fs.mkdirSync(workspace, { recursive: true });
+    const projectsDir = path.join(home, "projects");
+    const piDir = path.join(projectsDir, ".pi");
+    fs.mkdirSync(piDir, { recursive: true });
+    // Create real config elsewhere and symlink it in
+    const realConfig = path.join(home, "real-dungeon.json");
+    fs.writeFileSync(realConfig, JSON.stringify({ allowedHosts: ["real.example.com"] }));
+    const configLink = path.join(piDir, "dungeon.json");
+    fs.symlinkSync(realConfig, configLink);
+
+    const results = collectAncestorConfigs(workspace);
+
+    // The config file is a symlink, so it should be excluded
+    expect(results).not.toContain(configLink);
+  });
+
+  it("returns empty array when workspace is direct child of $HOME", () => {
+    const home = setup();
+    const workspace = path.join(home, "my-project");
+    fs.mkdirSync(workspace, { recursive: true });
+    // No ancestors between workspace and home (parent of workspace IS home)
+
+    const results = collectAncestorConfigs(workspace);
+
+    expect(results).toEqual([]);
+  });
+
+  it("returns empty array when no ancestor has .pi/dungeon.json", () => {
+    const home = setup();
+    const workspace = path.join(home, "projects", "work", "my-app");
+    fs.mkdirSync(workspace, { recursive: true });
+    // No .pi/dungeon.json files anywhere
+
+    const results = collectAncestorConfigs(workspace);
+
+    expect(results).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadConfig sources
+// ---------------------------------------------------------------------------
+
+describe("loadConfig sources", () => {
+  let tmpHome: string;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tmpHome) {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  function setup() {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-test-lc-"));
+    vi.spyOn(os, "homedir").mockReturnValue(tmpHome);
+    return tmpHome;
+  }
+
+  function writeJson(filePath: string, data: object) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data));
+  }
+
+  it("sources contains global, ancestor, and project config paths in merge order", () => {
+    const home = setup();
+    const globalConfigPath = path.join(home, ".pi", "agent", "dungeon.json");
+    const ancestorConfigPath = path.join(home, "projects", ".pi", "dungeon.json");
+    const workspace = path.join(home, "projects", "my-app");
+    const projectConfigPath = path.join(workspace, ".pi", "dungeon.json");
+
+    writeJson(globalConfigPath, { allowedHosts: ["global.example.com"] });
+    writeJson(ancestorConfigPath, { allowedHosts: ["ancestor.example.com"] });
+    writeJson(projectConfigPath, { allowedHosts: ["project.example.com"] });
+
+    const { sources } = loadConfig(workspace);
+
+    expect(sources).toEqual([globalConfigPath, ancestorConfigPath, projectConfigPath]);
+  });
+
+  it("merges config values: project overrides ancestor overrides global", () => {
+    const home = setup();
+    const globalConfigPath = path.join(home, ".pi", "agent", "dungeon.json");
+    const ancestorConfigPath = path.join(home, "projects", ".pi", "dungeon.json");
+    const workspace = path.join(home, "projects", "my-app");
+    const projectConfigPath = path.join(workspace, ".pi", "dungeon.json");
+
+    // Each level contributes an env var; later layers override
+    writeJson(globalConfigPath, { env: { LEVEL: "global", GLOBAL_ONLY: "yes" } });
+    writeJson(ancestorConfigPath, { env: { LEVEL: "ancestor", ANCESTOR_ONLY: "yes" } });
+    writeJson(projectConfigPath, { env: { LEVEL: "project", PROJECT_ONLY: "yes" } });
+
+    const { config } = loadConfig(workspace);
+
+    expect(config.env?.LEVEL).toBe("project");
+    expect(config.env?.GLOBAL_ONLY).toBe("yes");
+    expect(config.env?.ANCESTOR_ONLY).toBe("yes");
+    expect(config.env?.PROJECT_ONLY).toBe("yes");
+  });
+
+  it("omits missing configs from sources", () => {
+    const home = setup();
+    // No global or ancestor configs; only project
+    const workspace = path.join(home, "projects", "my-app");
+    const projectConfigPath = path.join(workspace, ".pi", "dungeon.json");
+    writeJson(projectConfigPath, { allowedHosts: ["project.example.com"] });
+
+    const { sources } = loadConfig(workspace);
+
+    expect(sources).toEqual([projectConfigPath]);
+  });
+
+  it("allowedHosts are concatenated in outermost-first order", () => {
+    const home = setup();
+    const globalConfigPath = path.join(home, ".pi", "agent", "dungeon.json");
+    const ancestorConfigPath = path.join(home, "projects", ".pi", "dungeon.json");
+    const workspace = path.join(home, "projects", "my-app");
+    const projectConfigPath = path.join(workspace, ".pi", "dungeon.json");
+
+    writeJson(globalConfigPath, { allowedHosts: ["global.example.com"] });
+    writeJson(ancestorConfigPath, { allowedHosts: ["ancestor.example.com"] });
+    writeJson(projectConfigPath, { allowedHosts: ["project.example.com"] });
+
+    const { config } = loadConfig(workspace);
+
+    expect(config.allowedHosts).toEqual(["global.example.com", "ancestor.example.com", "project.example.com"]);
+  });
+});

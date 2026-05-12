@@ -134,6 +134,9 @@ export class DungeonVm {
   /** When true, all tool overrides delegate to native (host) implementations. */
   public bypassed: boolean = false;
 
+  /** Paths of config files that contributed to the loaded config (in merge order). */
+  public configSources: string[] = [];
+
   private vm: VM | null = null;
   private attached: AttachedVM | null = null;
   private vmStarting: Promise<SandboxExec> | null = null;
@@ -213,7 +216,8 @@ export class DungeonVm {
   private async _start(ctx?: ExtensionContext): Promise<SandboxExec> {
     ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
 
-    const config = loadConfig(this.localCwd);
+    const { config, sources: configSources } = loadConfig(this.localCwd);
+    this.configSources = configSources;
     const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
     const env = { ...(config.env ?? {}), ...proxyEnv };
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);

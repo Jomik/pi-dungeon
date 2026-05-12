@@ -161,12 +161,66 @@ function readConfig(filePath: string): DungeonConfig {
   return validateConfig(parsed, filePath);
 }
 
-export function loadConfig(localCwd: string): DungeonConfig {
-  const globalConfigPath = path.join(os.homedir(), ".pi/agent/dungeon.json");
+export interface LoadedConfig {
+  config: DungeonConfig;
+  sources: string[]; // paths of files that contributed (in merge order)
+}
+
+export function collectAncestorConfigs(localCwd: string): string[] {
+  const home = os.homedir();
+  const results: string[] = [];
+  let current = path.dirname(localCwd);
+
+  while (current !== home && current !== path.dirname(current)) {
+    // Check if the directory itself is a symlink — if so, skip but continue walking
+    try {
+      const dirStat = fs.lstatSync(current);
+      if (!dirStat.isSymbolicLink()) {
+        const configPath = path.join(current, ".pi/dungeon.json");
+        try {
+          const fileStat = fs.lstatSync(configPath);
+          if (!fileStat.isSymbolicLink()) {
+            results.push(configPath);
+          }
+        } catch {
+          // file doesn't exist — skip
+        }
+      }
+    } catch {
+      // directory doesn't exist — stop walking
+      break;
+    }
+    current = path.dirname(current);
+  }
+
+  return results.reverse();
+}
+
+export function loadConfig(localCwd: string): LoadedConfig {
+  const home = os.homedir();
+  const globalConfigPath = path.join(home, ".pi/agent/dungeon.json");
   const projectConfigPath = path.join(localCwd, ".pi/dungeon.json");
+  const ancestorPaths = collectAncestorConfigs(localCwd);
 
+  const sources: string[] = [];
+  let merged: DungeonConfig = {};
+
+  // Global first
   const globalConfig = readConfig(globalConfigPath);
-  const projectConfig = readConfig(projectConfigPath);
+  if (Object.keys(globalConfig).length > 0) sources.push(globalConfigPath);
+  merged = mergeConfigs(merged, globalConfig);
 
-  return mergeConfigs(globalConfig, projectConfig);
+  // Ancestors (outermost first)
+  for (const ap of ancestorPaths) {
+    const cfg = readConfig(ap);
+    if (Object.keys(cfg).length > 0) sources.push(ap);
+    merged = mergeConfigs(merged, cfg);
+  }
+
+  // Per-project last (highest priority)
+  const projectConfig = readConfig(projectConfigPath);
+  if (Object.keys(projectConfig).length > 0) sources.push(projectConfigPath);
+  merged = mergeConfigs(merged, projectConfig);
+
+  return { config: merged, sources };
 }
