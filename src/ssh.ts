@@ -14,7 +14,9 @@
 
 import path from "node:path";
 
-import type { SshOptions, VM } from "@earendil-works/gondolin";
+import type { SshOptions } from "@earendil-works/gondolin";
+
+import type { SandboxExec } from "./attached-vm.ts";
 
 /**
  * The only SSH egress target permitted from the VM.
@@ -52,7 +54,7 @@ export function buildSshProxyConfig(home: string): SshOptions {
  *
  * @throws If the guest exec command fails.
  */
-export async function setupGitInGuest(vm: VM): Promise<void> {
+export async function setupGitInGuest(vm: SandboxExec): Promise<void> {
   const result = await vm.exec(["/bin/sh", "-c", "git config --system --add safe.directory '*'"]);
 
   if (!result.ok) {
@@ -73,7 +75,7 @@ export async function setupGitInGuest(vm: VM): Promise<void> {
  *
  * @throws If the guest exec command fails.
  */
-export async function setupSshInGuest(vm: VM, _home: string): Promise<void> {
+export async function setupSshInGuest(vm: SandboxExec, _home: string): Promise<void> {
   const guestSshDir = "/root/.ssh";
 
   const result = await vm.exec([

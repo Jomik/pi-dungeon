@@ -6,9 +6,8 @@
  */
 
 import path from "node:path";
-
-import type { VM } from "@earendil-works/gondolin";
 import type { BashOperations, EditOperations, ReadOperations, WriteOperations } from "@earendil-works/pi-coding-agent";
+import type { SandboxExec } from "./attached-vm.ts";
 
 import { shQuote, toGuestPath } from "./paths.ts";
 import type { PathMapping } from "./types.ts";
@@ -33,7 +32,7 @@ export function sanitizeEnv(env?: NodeJS.ProcessEnv): Record<string, string> | u
   return out;
 }
 
-export function createDungeonReadOps(vm: VM, mappings: PathMapping[]): ReadOperations {
+export function createDungeonReadOps(vm: SandboxExec, mappings: PathMapping[]): ReadOperations {
   return {
     readFile: async (p) => {
       const guestPath = toGuestPath(mappings, p);
@@ -64,7 +63,7 @@ export function createDungeonReadOps(vm: VM, mappings: PathMapping[]): ReadOpera
   };
 }
 
-export function createDungeonWriteOps(vm: VM, mappings: PathMapping[]): WriteOperations {
+export function createDungeonWriteOps(vm: SandboxExec, mappings: PathMapping[]): WriteOperations {
   return {
     writeFile: async (p, content) => {
       const guestPath = toGuestPath(mappings, p);
@@ -90,13 +89,13 @@ export function createDungeonWriteOps(vm: VM, mappings: PathMapping[]): WriteOpe
   };
 }
 
-export function createDungeonEditOps(vm: VM, mappings: PathMapping[]): EditOperations {
+export function createDungeonEditOps(vm: SandboxExec, mappings: PathMapping[]): EditOperations {
   const r = createDungeonReadOps(vm, mappings);
   const w = createDungeonWriteOps(vm, mappings);
   return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
 }
 
-export function createDungeonBashOps(vm: VM, mappings: PathMapping[]): BashOperations {
+export function createDungeonBashOps(vm: SandboxExec, mappings: PathMapping[]): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout, env }) => {
       const guestCwd = toGuestPath(mappings, cwd);

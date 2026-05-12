@@ -10,12 +10,16 @@
  * Tools hold a reference to this array and always see the current state.
  */
 
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { VM } from "@earendil-works/gondolin";
+import { findSession, VM } from "@earendil-works/gondolin";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-
+import type { SandboxExec } from "./attached-vm.ts";
+import { AttachedVM } from "./attached-vm.ts";
 import { loadConfig } from "./config.ts";
 import { buildMounts } from "./mounts.ts";
 import { buildTcpConfig, DNS_CONFIG } from "./network.ts";
@@ -29,10 +33,45 @@ import type { PathMapping } from "./types.ts";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /* ------------------------------------------------------------------ */
+/* Session marker utilities                                             */
+/*                                                                     */
+/* A small JSON file keyed by a hash of localCwd lets later sessions    */
+/* discover the parent's session ID across process boundaries.          */
+/* ------------------------------------------------------------------ */
+
+/** @internal Exported for testing only. */
+export function markerPath(localCwd: string): string {
+  const hash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
+  return path.join(os.tmpdir(), `dungeon-vm-${hash}.json`);
+}
+
+/** @internal Exported for testing only. */
+export function writeSessionMarker(localCwd: string, sessionId: string): void {
+  fs.writeFileSync(markerPath(localCwd), JSON.stringify({ sessionId, pid: process.pid }), "utf-8");
+}
+
+/** @internal Exported for testing only. */
+export function readSessionMarker(localCwd: string): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(markerPath(localCwd), "utf-8"));
+    return data.sessionId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** @internal Exported for testing only. */
+export function removeSessionMarker(localCwd: string): void {
+  try {
+    fs.unlinkSync(markerPath(localCwd));
+  } catch {}
+}
+
+/* ------------------------------------------------------------------ */
 /* Shared VM registry                                                  */
 /*                                                                     */
-/* Extensions load once per session, but parent and imp sessions share  */
-/* the same Node process.  A module-level Map lets imp sessions reuse   */
+/* Extensions load once per session, but multiple sessions may share    */
+/* the same Node process.  A module-level Map lets later sessions reuse */
 /* the parent's VM instead of booting a second one.  Ref-counting       */
 /* ensures close() only tears down the VM after the last user releases. */
 /* ------------------------------------------------------------------ */
@@ -51,11 +90,22 @@ const sharedVms = new Map<string, SharedEntry>();
  *          setup like the Obsidian bridge); `false` for subsequent ones.
  */
 export function acquireVm(localCwd: string, home: string): { vm: DungeonVm; isOwner: boolean } {
+  // Same-process sharing (existing logic)
   const existing = sharedVms.get(localCwd);
   if (existing) {
     existing.refs++;
     return { vm: existing.vm, isOwner: false };
   }
+
+  // Cross-process sharing: check for parent's session marker
+  const sessionId = readSessionMarker(localCwd);
+  if (sessionId) {
+    const vm = new DungeonVm(localCwd, home, sessionId);
+    sharedVms.set(localCwd, { vm, refs: 1 });
+    return { vm, isOwner: false };
+  }
+
+  // No existing session — create new (owner mode)
   const vm = new DungeonVm(localCwd, home);
   sharedVms.set(localCwd, { vm, refs: 1 });
   return { vm, isOwner: true };
@@ -71,6 +121,7 @@ export async function releaseVm(localCwd: string): Promise<void> {
   entry.refs--;
   if (entry.refs <= 0) {
     sharedVms.delete(localCwd);
+    removeSessionMarker(localCwd);
     await entry.vm.close();
   }
 }
@@ -84,11 +135,13 @@ export class DungeonVm {
   public bypassed: boolean = false;
 
   private vm: VM | null = null;
-  private vmStarting: Promise<VM> | null = null;
+  private attached: AttachedVM | null = null;
+  private vmStarting: Promise<SandboxExec> | null = null;
 
   constructor(
     private readonly localCwd: string,
     private readonly home: string,
+    private readonly attachSessionId: string | null = null,
   ) {
     this.guestWorkspace = computeGuestWorkspace(localCwd);
     this.mappings = createPathMappings(localCwd, this.guestWorkspace);
@@ -98,10 +151,18 @@ export class DungeonVm {
    * Return the running VM, starting it if necessary.
    * Concurrent callers share the same startup promise.
    */
-  async ensure(ctx?: ExtensionContext): Promise<VM> {
-    if (this.vm) return this.vm;
+  async ensure(ctx?: ExtensionContext): Promise<SandboxExec> {
+    if (this.vm) return this.vm as unknown as SandboxExec;
+    if (this.attached) return this.attached;
     if (this.vmStarting) return this.vmStarting;
 
+    if (this.attachSessionId) {
+      // Attached mode — connect to existing session's VM
+      const attached = await this._attach(this.attachSessionId, ctx);
+      return attached;
+    }
+
+    // Owner mode — boot new VM
     this.vmStarting = this._start(ctx).catch((err) => {
       this.vmStarting = null;
       throw err;
@@ -117,22 +178,39 @@ export class DungeonVm {
    * ref-counts and only calls close() on the last release.
    */
   async close(): Promise<void> {
+    if (this.attached) {
+      this.attached.close();
+      this.attached = null;
+      return;
+    }
     const pending = this.vmStarting;
     if (pending) {
       try {
-        const started = await pending;
-        await started.close();
+        await pending;
       } catch {
         // VM failed to start — nothing to close
       }
-    } else if (this.vm) {
+    }
+    if (this.vm) {
       await this.vm.close();
     }
     this.vm = null;
     this.vmStarting = null;
+    removeSessionMarker(this.localCwd);
   }
 
-  private async _start(ctx?: ExtensionContext): Promise<VM> {
+  private async _attach(sessionId: string, ctx?: ExtensionContext): Promise<SandboxExec> {
+    const session = await findSession(sessionId);
+    if (!session || !session.alive) {
+      // Stale marker — previous session is gone. Remove and boot fresh.
+      removeSessionMarker(this.localCwd);
+      return this._start(ctx);
+    }
+    this.attached = new AttachedVM(session.socketPath);
+    return this.attached;
+  }
+
+  private async _start(ctx?: ExtensionContext): Promise<SandboxExec> {
     ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
 
     const config = loadConfig(this.localCwd);
@@ -151,17 +229,19 @@ export class DungeonVm {
       vfs: { mounts },
     });
 
-    await setupGitInGuest(created);
-    await setupSshInGuest(created, this.home);
-    await installObsidianShim(created);
+    const exec = created as unknown as SandboxExec;
+    await setupGitInGuest(exec);
+    await setupSshInGuest(exec, this.home);
+    await installObsidianShim(exec);
 
     // Commit state atomically after all setup succeeds
     for (const m of pendingMappings) this.mappings.push(m);
     this.vm = created;
+    writeSessionMarker(this.localCwd, created.id);
 
     ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
     ctx?.ui.notify("Dungeon VM ready", "info");
 
-    return created;
+    return exec;
   }
 }

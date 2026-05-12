@@ -11,7 +11,7 @@ import { execSync, fork } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { VM } from "@earendil-works/gondolin";
+import type { SandboxExec } from "./attached-vm.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +44,7 @@ export function startObsidianBridge(): void {
  * over the VM's virtual network so the guest can invoke Obsidian without
  * direct host access.
  */
-export async function installObsidianShim(vm: VM): Promise<void> {
+export async function installObsidianShim(vm: SandboxExec): Promise<void> {
   const shimResult = await vm.exec([
     "/bin/sh",
     "-c",
