@@ -161,11 +161,17 @@ export function buildMounts(
   const pendingMappings: PathMapping[] = [];
   const projectMounts: Record<string, VirtualProvider> = {};
   if (config.mounts) {
-    for (const [guestPath, cfg] of Object.entries(config.mounts)) {
-      const hostPath = cfg.path.replace(/^~/, home);
-      const provider = new RealFSProvider(hostPath);
-      projectMounts[guestPath] = cfg.mode === "rw" ? provider : new ReadonlyProvider(provider);
-      pendingMappings.push({ hostDir: hostPath, guestDir: guestPath });
+    for (const entry of config.mounts) {
+      // Split optional :ro/:rw suffix
+      const match = entry.match(/^(.*?)(?::(ro|rw))?$/);
+      const rawPath = match![1]!;
+      const mode = (match![2] ?? "ro") as "ro" | "rw";
+      // Expand ~ using the home parameter
+      const expandedPath = rawPath.replace(/^~/, home);
+      const provider = new RealFSProvider(expandedPath);
+      // Guest path = expanded host path
+      projectMounts[expandedPath] = mode === "rw" ? provider : new ReadonlyProvider(provider);
+      pendingMappings.push({ hostDir: expandedPath, guestDir: expandedPath });
     }
   }
 

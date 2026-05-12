@@ -1,4 +1,7 @@
 {
+  "rootfs": {
+    "sizeMb": 4096
+  },
   "arch": "aarch64",
   "distro": "alpine",
   "alpine": {

@@ -43,25 +43,12 @@
       }
     },
     "mounts": {
-      "type": "object",
-      "description": "Additional host directories mounted into the VM. Each key is an absolute guest path. Global and per-project are merged; per-project wins on key conflict.",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["path"],
-        "additionalProperties": false,
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Host path. Supports ~ for home directory."
-          },
-          "mode": {
-            "type": "string",
-            "enum": ["ro", "rw"],
-            "default": "ro",
-            "description": "Mount mode. Defaults to read-only."
-          }
-        }
-      }
+      "type": "array",
+      "description": "Additional host directories mounted into the VM. Each entry is a host path, optionally suffixed with ':ro' or ':rw' to set the mount mode (default: ro). The host path is expanded via ~ and used as both host and guest path. Example: \"~/projects/work/foo\" or \"~/projects/work/bar:rw\". Global and per-project lists are concatenated.",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
     },
     "hiddenPaths": {
       "type": "array",
@@ -82,6 +69,22 @@
       "description": "Environment variables set inside the dungeon VM. Global and per-project are merged; per-project wins on key conflict.",
       "additionalProperties": {
         "type": "string"
+      }
+    },
+    "resources": {
+      "type": "object",
+      "description": "VM resource limits. Per-project overrides global field-by-field.",
+      "additionalProperties": false,
+      "properties": {
+        "memory": {
+          "type": "string",
+          "description": "VM memory size in qemu syntax (e.g. \"1G\", \"2G\", \"512M\"). Default: \"1G\"."
+        },
+        "cpus": {
+          "type": "integer",
+          "description": "Number of virtual CPUs. Default: 2.",
+          "minimum": 1
+        }
       }
     }
   }

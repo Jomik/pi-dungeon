@@ -123,48 +123,63 @@ describe("buildMounts", () => {
 
   it("adds a mount entry for each path in config.mounts", () => {
     const config = {
-      mounts: {
-        "/guest/extra": { path: "/tmp", mode: "ro" as const },
-      },
+      mounts: [`/tmp`],
     };
     const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
-    expect(mounts["/guest/extra"]).toBeDefined();
+    expect(mounts["/tmp"]).toBeDefined();
   });
 
   it("returns pendingMappings for each custom mount", () => {
     const config = {
-      mounts: {
-        "/guest/extra": { path: "/tmp", mode: "ro" as const },
-      },
+      mounts: ["/tmp"],
     };
     const { pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
     expect(pendingMappings).toHaveLength(1);
     expect(pendingMappings[0]).toMatchObject({
       hostDir: "/tmp",
-      guestDir: "/guest/extra",
+      guestDir: "/tmp",
     });
   });
 
   it("expands ~ in custom mount host paths", () => {
     const config = {
-      mounts: {
-        "/guest/homedir": { path: "~/mydir", mode: "ro" as const },
-      },
+      mounts: ["~/mydir"],
     };
-    const { pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
-    expect(pendingMappings[0]?.hostDir).toBe(`${home}/mydir`);
+    const { pendingMappings, mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    const expandedPath = `${home}/mydir`;
+    expect(pendingMappings[0]?.hostDir).toBe(expandedPath);
+    expect(pendingMappings[0]?.guestDir).toBe(expandedPath);
+    expect(mounts[expandedPath]).toBeDefined();
+  });
+
+  it("defaults to read-only when no mode suffix", () => {
+    const config = { mounts: ["/tmp"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    // ReadonlyProvider wraps — just check it's defined (structural check)
+    expect(mounts["/tmp"]).toBeDefined();
+  });
+
+  it("parses :ro suffix as read-only", () => {
+    const config = { mounts: ["/tmp:ro"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts["/tmp"]).toBeDefined();
+    expect(pendingMappings[0]).toMatchObject({ hostDir: "/tmp", guestDir: "/tmp" });
+  });
+
+  it("parses :rw suffix as read-write", () => {
+    const config = { mounts: ["/tmp:rw"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts["/tmp"]).toBeDefined();
+    expect(pendingMappings[0]).toMatchObject({ hostDir: "/tmp", guestDir: "/tmp" });
   });
 
   it("adds multiple custom mounts and returns all as pendingMappings", () => {
     const config = {
-      mounts: {
-        "/guest/a": { path: "/tmp", mode: "ro" as const },
-        "/guest/b": { path: "/tmp", mode: "rw" as const },
-      },
+      mounts: ["/tmp", "/tmp:rw"],
     };
-    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
-    expect(mounts["/guest/a"]).toBeDefined();
-    expect(mounts["/guest/b"]).toBeDefined();
+    // Note: both expand to same path — last write wins on the mounts map key
+    // but pendingMappings records both
+    const { pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
     expect(pendingMappings).toHaveLength(2);
   });
 

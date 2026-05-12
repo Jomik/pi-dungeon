@@ -156,6 +156,24 @@ Global and per-project are merged; per-project wins on key conflict.
 - `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths are relative to workspace root (prefix with `/`).
 - `tmpfsPaths` — workspace paths shadowed from the host with a guest-writable tmpfs overlay. Useful for dependency directories like `node_modules` or `.venv` that should be isolated from the host. Paths are relative to workspace root (prefix with `/`). Writes are cached per-workspace across VM restarts.
 
+### Resources
+
+Control how much memory and CPU the dungeon VM gets:
+
+```json
+{
+  "resources": {
+    "memory": "2G",
+    "cpus": 4
+  }
+}
+```
+
+- `memory` — VM memory in qemu syntax (`"512M"`, `"1G"`, `"2G"`, …). Default: `"1G"`.
+- `cpus` — number of virtual CPUs. Default: `2`.
+
+Per-project `resources` overrides global field-by-field (e.g. a per-project `memory` overrides only memory, leaving global `cpus` in effect).
+
 Both `hiddenPaths` and `tmpfsPaths` support three pattern types:
 
 | Pattern | Example | Matches |

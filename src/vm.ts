@@ -230,6 +230,8 @@ export class DungeonVm {
     const created = await VM.create({
       httpHooks,
       env,
+      ...(config.resources?.memory !== undefined && { memory: config.resources.memory }),
+      ...(config.resources?.cpus !== undefined && { cpus: config.resources.cpus }),
       sandbox: {
         imagePath: path.join(__dirname, "..", "image"),
       },

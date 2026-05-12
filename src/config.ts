@@ -12,6 +12,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "hiddenPaths",
   "tmpfsPaths",
   "env",
+  "resources",
 ]);
 
 export function validateConfig(config: unknown, filePath: string): DungeonConfig {
@@ -71,20 +72,31 @@ export function validateConfig(config: unknown, filePath: string): DungeonConfig
 
   // mounts
   if ("mounts" in obj) {
-    if (typeof obj.mounts !== "object" || obj.mounts === null || Array.isArray(obj.mounts)) {
-      err(`"mounts" must be an object`);
+    if (!Array.isArray(obj.mounts)) {
+      err(`"mounts" must be an array`);
     }
-    const mounts = obj.mounts as Record<string, unknown>;
-    for (const [key, entry] of Object.entries(mounts)) {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-        err(`"mounts.${key}" must be an object`);
+    const mounts = obj.mounts as unknown[];
+    for (let i = 0; i < mounts.length; i++) {
+      const entry = mounts[i];
+      if (typeof entry !== "string") {
+        err(`"mounts[${i}]" must be a string`);
       }
-      const e = entry as Record<string, unknown>;
-      if (typeof e.path !== "string") {
-        err(`"mounts.${key}.path" must be a string`);
-      }
-      if ("mode" in e && e.mode !== "ro" && e.mode !== "rw") {
-        err(`"mounts.${key}.mode" must be "ro" or "rw"`);
+      // Check for a trailing :word suffix (potential mode indicator)
+      const colonMatch = (entry as string).match(/:([^:/]*)$/);
+      if (colonMatch) {
+        const modePart = colonMatch[1];
+        if (modePart !== "ro" && modePart !== "rw") {
+          err(`"mounts[${i}]" mode suffix must be ":ro" or ":rw"`);
+        }
+        const pathPart = (entry as string).slice(0, -(colonMatch[0] as string).length);
+        if (pathPart.length === 0) {
+          err(`"mounts[${i}]" path must not be empty`);
+        }
+      } else {
+        // No mode suffix — validate the path itself is non-empty
+        if ((entry as string).length === 0) {
+          err(`"mounts[${i}]" path must not be empty`);
+        }
       }
     }
   }
@@ -126,17 +138,46 @@ export function validateConfig(config: unknown, filePath: string): DungeonConfig
     }
   }
 
+  // resources
+  if ("resources" in obj) {
+    if (typeof obj.resources !== "object" || obj.resources === null || Array.isArray(obj.resources)) {
+      err(`"resources" must be an object`);
+    }
+    const res = obj.resources as Record<string, unknown>;
+    if ("memory" in res && typeof res.memory !== "string") {
+      err(`"resources.memory" must be a string`);
+    }
+    if ("cpus" in res) {
+      if (typeof res.cpus !== "number" || !Number.isInteger(res.cpus) || res.cpus < 1) {
+        err(`"resources.cpus" must be a positive integer`);
+      }
+    }
+  }
+
   return obj as unknown as DungeonConfig;
 }
 
 export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): DungeonConfig {
+  // Merge mounts: concatenate arrays, deduplicate by path part (project wins on same path).
+  const mergedMounts = (): string[] => {
+    const globalMounts = globalCfg.mounts ?? [];
+    const projectMounts = project.mounts ?? [];
+    // Extract the path part (strip optional :ro/:rw suffix)
+    const pathOf = (entry: string): string => entry.replace(/:(ro|rw)$/, "");
+    const projectPaths = new Set(projectMounts.map(pathOf));
+    // Keep global entries whose path is not overridden by project
+    const filtered = globalMounts.filter((e) => !projectPaths.has(pathOf(e)));
+    return [...filtered, ...projectMounts];
+  };
+
   return {
     allowedHosts: [...(globalCfg.allowedHosts ?? []), ...(project.allowedHosts ?? [])],
     secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
-    mounts: { ...(globalCfg.mounts ?? {}), ...(project.mounts ?? {}) },
+    mounts: mergedMounts(),
     hiddenPaths: [...(globalCfg.hiddenPaths ?? []), ...(project.hiddenPaths ?? [])],
     tmpfsPaths: [...(globalCfg.tmpfsPaths ?? []), ...(project.tmpfsPaths ?? [])],
     env: { ...(globalCfg.env ?? {}), ...(project.env ?? {}) },
+    resources: { ...(globalCfg.resources ?? {}), ...(project.resources ?? {}) },
   };
 }
 

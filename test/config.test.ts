@@ -13,7 +13,7 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs({}, {});
     expect(result.allowedHosts).toEqual([]);
     expect(result.secrets).toEqual({});
-    expect(result.mounts).toEqual({});
+    expect(result.mounts).toEqual([]);
   });
 
   it("concatenates allowedHosts from both configs", () => {
@@ -63,24 +63,21 @@ describe("mergeConfigs", () => {
   it("merges mounts, project wins on conflict", () => {
     const result = mergeConfigs(
       {
-        mounts: {
-          "/guest/a": { path: "/host/a", mode: "ro" },
-          "/guest/shared": { path: "/host/global-shared", mode: "ro" },
-        },
+        mounts: ["~/host/a", "~/host/shared"],
       },
       {
-        mounts: {
-          "/guest/shared": { path: "/host/project-shared", mode: "rw" },
-          "/guest/b": { path: "/host/b", mode: "rw" },
-        },
+        mounts: ["~/host/shared:rw", "~/host/b:rw"],
       },
     );
-    expect(result.mounts?.["/guest/a"]).toEqual({ path: "/host/a", mode: "ro" });
-    expect(result.mounts?.["/guest/shared"]).toEqual({
-      path: "/host/project-shared",
-      mode: "rw",
-    });
-    expect(result.mounts?.["/guest/b"]).toEqual({ path: "/host/b", mode: "rw" });
+    // global-only entry preserved
+    expect(result.mounts).toContain("~/host/a");
+    // project entry for shared path overrides global
+    expect(result.mounts).toContain("~/host/shared:rw");
+    expect(result.mounts).not.toContain("~/host/shared");
+    // project-only entry present
+    expect(result.mounts).toContain("~/host/b:rw");
+    // order: global non-overridden first, then project entries
+    expect(result.mounts).toEqual(["~/host/a", "~/host/shared:rw", "~/host/b:rw"]);
   });
 
   it("handles partial configs (only one side has fields)", () => {
@@ -90,7 +87,7 @@ describe("mergeConfigs", () => {
     );
     expect(result.allowedHosts).toEqual(["global.com"]);
     expect(result.secrets?.KEY).toBeDefined();
-    expect(result.mounts).toEqual({});
+    expect(result.mounts).toEqual([]);
   });
 
   it("concatenates hiddenPaths from both configs", () => {
@@ -132,6 +129,34 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs({}, { env: { FOO: "bar" } });
     expect(result.env).toEqual({ FOO: "bar" });
   });
+
+  it("project resources.memory overrides global resources.memory", () => {
+    const result = mergeConfigs({ resources: { memory: "1G", cpus: 2 } }, { resources: { memory: "4G", cpus: 2 } });
+    expect(result.resources?.memory).toBe("4G");
+  });
+
+  it("project resources.cpus overrides global resources.cpus", () => {
+    const result = mergeConfigs({ resources: { memory: "2G", cpus: 2 } }, { resources: { memory: "2G", cpus: 8 } });
+    expect(result.resources?.cpus).toBe(8);
+  });
+
+  it("partial override: project sets only memory, global cpus is preserved", () => {
+    const result = mergeConfigs({ resources: { memory: "1G", cpus: 4 } }, { resources: { memory: "2G" } });
+    expect(result.resources?.memory).toBe("2G");
+    expect(result.resources?.cpus).toBe(4);
+  });
+
+  it("partial override: project sets only cpus, global memory is preserved", () => {
+    const result = mergeConfigs({ resources: { memory: "1G", cpus: 2 } }, { resources: { cpus: 8 } });
+    expect(result.resources?.memory).toBe("1G");
+    expect(result.resources?.cpus).toBe(8);
+  });
+
+  it("project resources overrides global when global has no resources", () => {
+    const result = mergeConfigs({}, { resources: { memory: "2G", cpus: 4 } });
+    expect(result.resources?.memory).toBe("2G");
+    expect(result.resources?.cpus).toBe(4);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -146,7 +171,7 @@ describe("validateConfig", () => {
       {
         allowedHosts: ["example.com"],
         secrets: { TOKEN: { keychain: "my-keychain", hosts: ["example.com"] } },
-        mounts: { "/guest/data": { path: "/host/data", mode: "ro" } },
+        mounts: ["~/data", "~/writable:rw"],
         hiddenPaths: ["/.env"],
         tmpfsPaths: ["/tmp"],
       },
@@ -195,16 +220,34 @@ describe("validateConfig", () => {
     );
   });
 
-  it("throws on mounts entry missing path", () => {
-    expect(() => validateConfig({ mounts: { "/guest": { mode: "ro" } } }, fp)).toThrow(
-      /"mounts\.\/guest\.path" must be a string/,
+  it("throws on mounts being non-array", () => {
+    expect(() => validateConfig({ mounts: { "/guest": "~/host" } }, fp)).toThrow(/"mounts" must be an array/);
+  });
+
+  it("throws on mounts entry being non-string", () => {
+    expect(() => validateConfig({ mounts: [42] }, fp)).toThrow(/"mounts\[0\]" must be a string/);
+  });
+
+  it("throws on mounts entry with empty path", () => {
+    expect(() => validateConfig({ mounts: [":ro"] }, fp)).toThrow(/"mounts\[0\]" path must not be empty/);
+  });
+
+  it("throws on mounts entry with invalid mode suffix", () => {
+    expect(() => validateConfig({ mounts: ["~/foo:rx"] }, fp)).toThrow(
+      /"mounts\[0\]" mode suffix must be ":ro" or ":rw"/,
     );
   });
 
-  it("throws on mounts entry with invalid mode", () => {
-    expect(() => validateConfig({ mounts: { "/guest": { path: "/host", mode: "rx" } } }, fp)).toThrow(
-      /"mounts\.\/guest\.mode" must be "ro" or "rw"/,
-    );
+  it("accepts mounts entry without mode suffix (defaults ro)", () => {
+    expect(() => validateConfig({ mounts: ["~/data"] }, fp)).not.toThrow();
+  });
+
+  it("accepts mounts entry with :ro suffix", () => {
+    expect(() => validateConfig({ mounts: ["~/data:ro"] }, fp)).not.toThrow();
+  });
+
+  it("accepts mounts entry with :rw suffix", () => {
+    expect(() => validateConfig({ mounts: ["~/data:rw"] }, fp)).not.toThrow();
   });
 
   it("throws on hiddenPaths being non-array", () => {
@@ -225,6 +268,54 @@ describe("validateConfig", () => {
 
   it("throws on env value being non-string", () => {
     expect(() => validateConfig({ env: { FOO: 42 } }, fp)).toThrow(/"env\.FOO" must be a string/);
+  });
+
+  it("throws on resources being a string", () => {
+    expect(() => validateConfig({ resources: "2G" }, fp)).toThrow(/"resources" must be an object/);
+  });
+
+  it("throws on resources being an array", () => {
+    expect(() => validateConfig({ resources: ["2G"] }, fp)).toThrow(/"resources" must be an object/);
+  });
+
+  it("throws on resources being a number", () => {
+    expect(() => validateConfig({ resources: 2 }, fp)).toThrow(/"resources" must be an object/);
+  });
+
+  it("throws on resources.memory being a number", () => {
+    expect(() => validateConfig({ resources: { memory: 2048 } }, fp)).toThrow(/"resources\.memory" must be a string/);
+  });
+
+  it("throws on resources.cpus being 0", () => {
+    expect(() => validateConfig({ resources: { cpus: 0 } }, fp)).toThrow(
+      /"resources\.cpus" must be a positive integer/,
+    );
+  });
+
+  it("throws on resources.cpus being negative", () => {
+    expect(() => validateConfig({ resources: { cpus: -1 } }, fp)).toThrow(
+      /"resources\.cpus" must be a positive integer/,
+    );
+  });
+
+  it("throws on resources.cpus being a float", () => {
+    expect(() => validateConfig({ resources: { cpus: 1.5 } }, fp)).toThrow(
+      /"resources\.cpus" must be a positive integer/,
+    );
+  });
+
+  it("throws on resources.cpus being a string", () => {
+    expect(() => validateConfig({ resources: { cpus: "4" } }, fp)).toThrow(
+      /"resources\.cpus" must be a positive integer/,
+    );
+  });
+
+  it("accepts valid resources with memory and cpus", () => {
+    expect(() => validateConfig({ resources: { memory: "2G", cpus: 4 } }, fp)).not.toThrow();
+  });
+
+  it("accepts empty resources object", () => {
+    expect(() => validateConfig({ resources: {} }, fp)).not.toThrow();
   });
 });
 
