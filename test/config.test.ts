@@ -111,6 +111,24 @@ describe("mergeConfigs", () => {
     expect(result.hiddenPaths).toEqual([]);
     expect(result.tmpfsPaths).toEqual(["/node_modules"]);
   });
+
+  it("merges env, project wins on conflict", () => {
+    const result = mergeConfigs(
+      { env: { FOO: "global", SHARED: "global-val" } },
+      { env: { SHARED: "project-val", BAR: "project" } },
+    );
+    expect(result.env).toEqual({ FOO: "global", SHARED: "project-val", BAR: "project" });
+  });
+
+  it("merges env with only global side", () => {
+    const result = mergeConfigs({ env: { FOO: "bar" } }, {});
+    expect(result.env).toEqual({ FOO: "bar" });
+  });
+
+  it("merges env with only project side", () => {
+    const result = mergeConfigs({}, { env: { FOO: "bar" } });
+    expect(result.env).toEqual({ FOO: "bar" });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -192,5 +210,17 @@ describe("validateConfig", () => {
 
   it("throws on tmpfsPaths containing non-strings", () => {
     expect(() => validateConfig({ tmpfsPaths: [false] }, fp)).toThrow(/"tmpfsPaths\[0\]" must be a string/);
+  });
+
+  it("accepts valid env object", () => {
+    expect(() => validateConfig({ env: { FOO: "bar", HELLO: "world" } }, fp)).not.toThrow();
+  });
+
+  it("throws on env being non-object", () => {
+    expect(() => validateConfig({ env: "FOO=bar" }, fp)).toThrow(/"env" must be an object/);
+  });
+
+  it("throws on env value being non-string", () => {
+    expect(() => validateConfig({ env: { FOO: 42 } }, fp)).toThrow(/"env\.FOO" must be a string/);
   });
 });

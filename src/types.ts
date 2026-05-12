@@ -9,6 +9,7 @@ export interface DungeonConfig {
   mounts?: Record<string, { path: string; mode?: "ro" | "rw" }>;
   hiddenPaths?: string[]; // completely hidden from guest (ENOENT)
   tmpfsPaths?: string[]; // shadowed from host, guest writes to tmpfs cache
+  env?: Record<string, string>;
 }
 
 export interface PathMapping {

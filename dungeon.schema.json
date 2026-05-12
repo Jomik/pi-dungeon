@@ -76,6 +76,13 @@
       "items": {
         "type": "string"
       }
+    },
+    "env": {
+      "type": "object",
+      "description": "Environment variables set inside the dungeon VM. Global and per-project are merged; per-project wins on key conflict.",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   }
 }

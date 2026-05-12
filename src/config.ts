@@ -4,7 +4,15 @@ import path from "node:path";
 
 import type { DungeonConfig } from "./types.ts";
 
-const KNOWN_TOP_LEVEL_KEYS = new Set(["$schema", "allowedHosts", "secrets", "mounts", "hiddenPaths", "tmpfsPaths"]);
+const KNOWN_TOP_LEVEL_KEYS = new Set([
+  "$schema",
+  "allowedHosts",
+  "secrets",
+  "mounts",
+  "hiddenPaths",
+  "tmpfsPaths",
+  "env",
+]);
 
 export function validateConfig(config: unknown, filePath: string): DungeonConfig {
   const err = (reason: string): never => {
@@ -105,6 +113,19 @@ export function validateConfig(config: unknown, filePath: string): DungeonConfig
     }
   }
 
+  // env
+  if ("env" in obj) {
+    if (typeof obj.env !== "object" || obj.env === null || Array.isArray(obj.env)) {
+      err(`"env" must be an object`);
+    }
+    const env = obj.env as Record<string, unknown>;
+    for (const [key, val] of Object.entries(env)) {
+      if (typeof val !== "string") {
+        err(`"env.${key}" must be a string`);
+      }
+    }
+  }
+
   return obj as unknown as DungeonConfig;
 }
 
@@ -115,6 +136,7 @@ export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): 
     mounts: { ...(globalCfg.mounts ?? {}), ...(project.mounts ?? {}) },
     hiddenPaths: [...(globalCfg.hiddenPaths ?? []), ...(project.hiddenPaths ?? [])],
     tmpfsPaths: [...(globalCfg.tmpfsPaths ?? []), ...(project.tmpfsPaths ?? [])],
+    env: { ...(globalCfg.env ?? {}), ...(project.env ?? {}) },
   };
 }
 

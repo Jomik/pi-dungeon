@@ -214,7 +214,8 @@ export class DungeonVm {
     ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
 
     const config = loadConfig(this.localCwd);
-    const { httpHooks, env } = resolveHttpHooks(config);
+    const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
+    const env = { ...(config.env ?? {}), ...proxyEnv };
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);
 
     const created = await VM.create({
