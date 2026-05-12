@@ -113,6 +113,14 @@ Both files use the same schema:
 - `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths are relative to workspace root (prefix with `/`).
 - `tmpfsPaths` — workspace paths shadowed from the host with a guest-writable tmpfs overlay. Useful for dependency directories like `node_modules` or `.venv` that should be isolated from the host. Paths are relative to workspace root (prefix with `/`). Writes are cached per-workspace across VM restarts.
 
+Both `hiddenPaths` and `tmpfsPaths` support three pattern types:
+
+| Pattern | Example | Matches |
+|---------|---------|--------|
+| `/path` | `/node_modules` | Exact prefix at workspace root |
+| `**/name` | `**/bin` | Segment at any depth (`/bin`, `/src/App/bin`, …) |
+| `/path.*` | `/.env.*` | Wildcard in last segment (`/.env.local`, `/.env.production`, …) |
+
 The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
 
 If the keychain lookup fails for a secret, that secret is silently skipped (safe default).
@@ -158,6 +166,12 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 | `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |
 
 Additional mounts are configured via `mounts` in global or per-project config.
+
+## Known limitations
+
+- **Commit signing unavailable** — `ssh-keygen -Y sign` requires a local SSH agent socket, but gondolin does not forward the host's SSH agent into the VM. Commits created inside the dungeon will be unsigned. Push already-signed commits from the host if signatures are required.
+- **SSH agent must have keys loaded** — The SSH proxy authenticates upstream connections using the host's SSH agent. If no keys are loaded (`ssh-add -l` returns empty), git push over SSH will fail with "All configured authentication methods failed". Fix with `ssh-add --apple-use-keychain <key>` on the host before starting pi.
+- **`git safe.directory`** — The guest runs as root but VFS files report the host user's uid. The dungeon automatically sets `safe.directory = *` in the system-wide git config (`/etc/gitconfig`) at boot to suppress git's "dubious ownership" warnings.
 
 ## Rebuilding the image
 

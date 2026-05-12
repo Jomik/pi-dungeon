@@ -45,10 +45,15 @@ export function buildSshProxyConfig(home: string): SshOptions {
  * which git treats as a security risk. This is safe because the VM is
  * already sandboxed.
  *
+ * Config is written to /etc/gitconfig (system-wide) because the guest has
+ * two effective HOME values: the host homedir ($HOME, used by agent bash)
+ * and /root (passwd entry, used by ! user commands). System-wide config is
+ * read regardless of HOME.
+ *
  * @throws If the guest exec command fails.
  */
 export async function setupGitInGuest(vm: VM): Promise<void> {
-  const result = await vm.exec(["/bin/sh", "-c", "git config --global --add safe.directory '*'"]);
+  const result = await vm.exec(["/bin/sh", "-c", "git config --system --add safe.directory '*'"]);
 
   if (!result.ok) {
     throw new Error(`Git setup failed (${result.exitCode}): ${result.stderr}`);
