@@ -2,159 +2,49 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { DungeonConfig } from "./types.ts";
+import { Compile } from "typebox/compile";
+import { type DungeonConfig, DungeonConfigSchema } from "./types.ts";
 
-const KNOWN_TOP_LEVEL_KEYS = new Set([
-  "$schema",
-  "allowedHosts",
-  "secrets",
-  "mounts",
-  "hiddenPaths",
-  "tmpfsPaths",
-  "env",
-  "resources",
-]);
+const validate = Compile(DungeonConfigSchema);
 
 export function validateConfig(config: unknown, filePath: string): DungeonConfig {
-  const err = (reason: string): never => {
-    throw new Error(`Invalid dungeon config at ${filePath}: ${reason}`);
-  };
-
+  // First check it's an object
   if (typeof config !== "object" || config === null || Array.isArray(config)) {
-    err("top level must be an object");
+    throw new Error(`Invalid dungeon config at ${filePath}: top level must be an object`);
   }
 
-  const obj = config as Record<string, unknown>;
-
-  // Check for unknown top-level keys
-  for (const key of Object.keys(obj)) {
-    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
-      err(`unknown field "${key}"`);
-    }
+  // TypeBox schema validation
+  if (!validate.Check(config)) {
+    const errors = validate.Errors(config);
+    const firstError = errors[0];
+    const msg = firstError ? `${firstError.instancePath}: ${firstError.message}` : "unknown error";
+    throw new Error(`Invalid dungeon config at ${filePath}: ${msg}`);
   }
 
-  // allowedHosts
-  if ("allowedHosts" in obj) {
-    if (!Array.isArray(obj.allowedHosts)) {
-      err(`"allowedHosts" must be an array`);
-    }
-    for (let i = 0; i < (obj.allowedHosts as unknown[]).length; i++) {
-      if (typeof (obj.allowedHosts as unknown[])[i] !== "string") {
-        err(`"allowedHosts[${i}]" must be a string`);
-      }
-    }
-  }
-
-  // secrets
-  if ("secrets" in obj) {
-    if (typeof obj.secrets !== "object" || obj.secrets === null || Array.isArray(obj.secrets)) {
-      err(`"secrets" must be an object`);
-    }
-    const secrets = obj.secrets as Record<string, unknown>;
-    for (const [key, entry] of Object.entries(secrets)) {
-      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-        err(`"secrets.${key}" must be an object`);
-      }
-      const e = entry as Record<string, unknown>;
-      if (typeof e.keychain !== "string") {
-        err(`"secrets.${key}.keychain" must be a string`);
-      }
-      if (!Array.isArray(e.hosts)) {
-        err(`"secrets.${key}.hosts" must be an array`);
-      }
-      for (let i = 0; i < (e.hosts as unknown[]).length; i++) {
-        if (typeof (e.hosts as unknown[])[i] !== "string") {
-          err(`"secrets.${key}.hosts[${i}]" must be a string`);
-        }
-      }
-    }
-  }
-
-  // mounts
-  if ("mounts" in obj) {
-    if (!Array.isArray(obj.mounts)) {
-      err(`"mounts" must be an array`);
-    }
-    const mounts = obj.mounts as unknown[];
-    for (let i = 0; i < mounts.length; i++) {
-      const entry = mounts[i];
-      if (typeof entry !== "string") {
-        err(`"mounts[${i}]" must be a string`);
-      }
-      // Check for a trailing :word suffix (potential mode indicator)
-      const colonMatch = (entry as string).match(/:([^:/]*)$/);
+  // Custom mount validation (path non-empty, mode suffix)
+  const cfg = config as DungeonConfig;
+  if (cfg.mounts) {
+    for (let i = 0; i < cfg.mounts.length; i++) {
+      const entry = cfg.mounts[i];
+      const colonMatch = entry.match(/:([^:/]*)$/);
       if (colonMatch) {
         const modePart = colonMatch[1];
         if (modePart !== "ro" && modePart !== "rw") {
-          err(`"mounts[${i}]" mode suffix must be ":ro" or ":rw"`);
+          throw new Error(`Invalid dungeon config at ${filePath}: "mounts[${i}]" mode suffix must be ":ro" or ":rw"`);
         }
-        const pathPart = (entry as string).slice(0, -(colonMatch[0] as string).length);
+        const pathPart = entry.slice(0, -colonMatch[0].length);
         if (pathPart.length === 0) {
-          err(`"mounts[${i}]" path must not be empty`);
+          throw new Error(`Invalid dungeon config at ${filePath}: "mounts[${i}]" path must not be empty`);
         }
       } else {
-        // No mode suffix — validate the path itself is non-empty
-        if ((entry as string).length === 0) {
-          err(`"mounts[${i}]" path must not be empty`);
+        if (entry.length === 0) {
+          throw new Error(`Invalid dungeon config at ${filePath}: "mounts[${i}]" path must not be empty`);
         }
       }
     }
   }
 
-  // hiddenPaths
-  if ("hiddenPaths" in obj) {
-    if (!Array.isArray(obj.hiddenPaths)) {
-      err(`"hiddenPaths" must be an array`);
-    }
-    for (let i = 0; i < (obj.hiddenPaths as unknown[]).length; i++) {
-      if (typeof (obj.hiddenPaths as unknown[])[i] !== "string") {
-        err(`"hiddenPaths[${i}]" must be a string`);
-      }
-    }
-  }
-
-  // tmpfsPaths
-  if ("tmpfsPaths" in obj) {
-    if (!Array.isArray(obj.tmpfsPaths)) {
-      err(`"tmpfsPaths" must be an array`);
-    }
-    for (let i = 0; i < (obj.tmpfsPaths as unknown[]).length; i++) {
-      if (typeof (obj.tmpfsPaths as unknown[])[i] !== "string") {
-        err(`"tmpfsPaths[${i}]" must be a string`);
-      }
-    }
-  }
-
-  // env
-  if ("env" in obj) {
-    if (typeof obj.env !== "object" || obj.env === null || Array.isArray(obj.env)) {
-      err(`"env" must be an object`);
-    }
-    const env = obj.env as Record<string, unknown>;
-    for (const [key, val] of Object.entries(env)) {
-      if (typeof val !== "string") {
-        err(`"env.${key}" must be a string`);
-      }
-    }
-  }
-
-  // resources
-  if ("resources" in obj) {
-    if (typeof obj.resources !== "object" || obj.resources === null || Array.isArray(obj.resources)) {
-      err(`"resources" must be an object`);
-    }
-    const res = obj.resources as Record<string, unknown>;
-    if ("memory" in res && typeof res.memory !== "string") {
-      err(`"resources.memory" must be a string`);
-    }
-    if ("cpus" in res) {
-      if (typeof res.cpus !== "number" || !Number.isInteger(res.cpus) || res.cpus < 1) {
-        err(`"resources.cpus" must be a positive integer`);
-      }
-    }
-  }
-
-  return obj as unknown as DungeonConfig;
+  return cfg;
 }
 
 export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): DungeonConfig {

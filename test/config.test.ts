@@ -197,35 +197,35 @@ describe("validateConfig", () => {
   });
 
   it("throws on unknown top-level key", () => {
-    expect(() => validateConfig({ unknownField: true }, fp)).toThrow(/unknown field "unknownField"/);
+    expect(() => validateConfig({ unknownField: true }, fp)).toThrow(/must not have additional properties/);
   });
 
   it("throws on allowedHosts being non-array", () => {
-    expect(() => validateConfig({ allowedHosts: "example.com" }, fp)).toThrow(/"allowedHosts" must be an array/);
+    expect(() => validateConfig({ allowedHosts: "example.com" }, fp)).toThrow(/\/allowedHosts: must be array/);
   });
 
   it("throws on allowedHosts containing non-strings", () => {
-    expect(() => validateConfig({ allowedHosts: [42] }, fp)).toThrow(/"allowedHosts\[0\]" must be a string/);
+    expect(() => validateConfig({ allowedHosts: [42] }, fp)).toThrow(/\/allowedHosts\/0: must be string/);
   });
 
   it("throws on secrets entry missing keychain", () => {
     expect(() => validateConfig({ secrets: { TOKEN: { hosts: ["example.com"] } } }, fp)).toThrow(
-      /"secrets\.TOKEN\.keychain" must be a string/,
+      /\/secrets\/TOKEN: must have required properties/,
     );
   });
 
   it("throws on secrets entry missing hosts", () => {
     expect(() => validateConfig({ secrets: { TOKEN: { keychain: "k" } } }, fp)).toThrow(
-      /"secrets\.TOKEN\.hosts" must be an array/,
+      /\/secrets\/TOKEN: must have required properties/,
     );
   });
 
   it("throws on mounts being non-array", () => {
-    expect(() => validateConfig({ mounts: { "/guest": "~/host" } }, fp)).toThrow(/"mounts" must be an array/);
+    expect(() => validateConfig({ mounts: { "/guest": "~/host" } }, fp)).toThrow(/\/mounts: must be array/);
   });
 
   it("throws on mounts entry being non-string", () => {
-    expect(() => validateConfig({ mounts: [42] }, fp)).toThrow(/"mounts\[0\]" must be a string/);
+    expect(() => validateConfig({ mounts: [42] }, fp)).toThrow(/\/mounts\/0: must be string/);
   });
 
   it("throws on mounts entry with empty path", () => {
@@ -251,11 +251,11 @@ describe("validateConfig", () => {
   });
 
   it("throws on hiddenPaths being non-array", () => {
-    expect(() => validateConfig({ hiddenPaths: "/secret" }, fp)).toThrow(/"hiddenPaths" must be an array/);
+    expect(() => validateConfig({ hiddenPaths: "/secret" }, fp)).toThrow(/\/hiddenPaths: must be array/);
   });
 
   it("throws on tmpfsPaths containing non-strings", () => {
-    expect(() => validateConfig({ tmpfsPaths: [false] }, fp)).toThrow(/"tmpfsPaths\[0\]" must be a string/);
+    expect(() => validateConfig({ tmpfsPaths: [false] }, fp)).toThrow(/\/tmpfsPaths\/0: must be string/);
   });
 
   it("accepts valid env object", () => {
@@ -263,51 +263,43 @@ describe("validateConfig", () => {
   });
 
   it("throws on env being non-object", () => {
-    expect(() => validateConfig({ env: "FOO=bar" }, fp)).toThrow(/"env" must be an object/);
+    expect(() => validateConfig({ env: "FOO=bar" }, fp)).toThrow(/\/env: must be object/);
   });
 
   it("throws on env value being non-string", () => {
-    expect(() => validateConfig({ env: { FOO: 42 } }, fp)).toThrow(/"env\.FOO" must be a string/);
+    expect(() => validateConfig({ env: { FOO: 42 } }, fp)).toThrow(/\/env\/FOO: must be string/);
   });
 
   it("throws on resources being a string", () => {
-    expect(() => validateConfig({ resources: "2G" }, fp)).toThrow(/"resources" must be an object/);
+    expect(() => validateConfig({ resources: "2G" }, fp)).toThrow(/\/resources: must be object/);
   });
 
   it("throws on resources being an array", () => {
-    expect(() => validateConfig({ resources: ["2G"] }, fp)).toThrow(/"resources" must be an object/);
+    expect(() => validateConfig({ resources: ["2G"] }, fp)).toThrow(/\/resources: must be object/);
   });
 
   it("throws on resources being a number", () => {
-    expect(() => validateConfig({ resources: 2 }, fp)).toThrow(/"resources" must be an object/);
+    expect(() => validateConfig({ resources: 2 }, fp)).toThrow(/\/resources: must be object/);
   });
 
   it("throws on resources.memory being a number", () => {
-    expect(() => validateConfig({ resources: { memory: 2048 } }, fp)).toThrow(/"resources\.memory" must be a string/);
+    expect(() => validateConfig({ resources: { memory: 2048 } }, fp)).toThrow(/\/resources\/memory: must be string/);
   });
 
   it("throws on resources.cpus being 0", () => {
-    expect(() => validateConfig({ resources: { cpus: 0 } }, fp)).toThrow(
-      /"resources\.cpus" must be a positive integer/,
-    );
+    expect(() => validateConfig({ resources: { cpus: 0 } }, fp)).toThrow(/\/resources\/cpus: must be >= 1/);
   });
 
   it("throws on resources.cpus being negative", () => {
-    expect(() => validateConfig({ resources: { cpus: -1 } }, fp)).toThrow(
-      /"resources\.cpus" must be a positive integer/,
-    );
+    expect(() => validateConfig({ resources: { cpus: -1 } }, fp)).toThrow(/\/resources\/cpus: must be >= 1/);
   });
 
   it("throws on resources.cpus being a float", () => {
-    expect(() => validateConfig({ resources: { cpus: 1.5 } }, fp)).toThrow(
-      /"resources\.cpus" must be a positive integer/,
-    );
+    expect(() => validateConfig({ resources: { cpus: 1.5 } }, fp)).toThrow(/\/resources\/cpus: must be integer/);
   });
 
   it("throws on resources.cpus being a string", () => {
-    expect(() => validateConfig({ resources: { cpus: "4" } }, fp)).toThrow(
-      /"resources\.cpus" must be a positive integer/,
-    );
+    expect(() => validateConfig({ resources: { cpus: "4" } }, fp)).toThrow(/\/resources\/cpus: must be integer/);
   });
 
   it("accepts valid resources with memory and cpus", () => {

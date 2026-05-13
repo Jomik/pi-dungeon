@@ -2,90 +2,78 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Jomik/pi-dungeon/dungeon.schema.json",
   "title": "Dungeon Config",
-  "description": "Configuration for the pi-dungeon sandbox extension. Used at ~/.pi/agent/dungeon.json (global) and <project>/.pi/dungeon.json (per-project).",
   "type": "object",
-  "additionalProperties": false,
   "properties": {
     "$schema": {
-      "type": "string",
-      "description": "JSON Schema reference (ignored at runtime)."
+      "type": "string"
     },
     "allowedHosts": {
       "type": "array",
-      "description": "Hostnames the sandbox is allowed to reach over HTTPS. Supports wildcards (e.g. \"*.github.com\"). Global and per-project lists are concatenated.",
       "items": {
         "type": "string"
-      },
-      "uniqueItems": true
+      }
     },
     "secrets": {
       "type": "object",
-      "description": "Secrets injected into matching HTTP requests via placeholder replacement. Each key is a secret name (e.g. GH_TOKEN). The guest references it as $GH_TOKEN in headers. Global and per-project are merged; per-project wins on key conflict.",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["keychain", "hosts"],
-        "additionalProperties": false,
-        "properties": {
-          "keychain": {
-            "type": "string",
-            "description": "macOS Keychain account name under service \"pi-dungeon\"."
-          },
-          "hosts": {
-            "type": "array",
-            "description": "Hosts that receive this secret value.",
-            "items": {
+      "patternProperties": {
+        "^.*$": {
+          "type": "object",
+          "required": [
+            "keychain",
+            "hosts"
+          ],
+          "properties": {
+            "keychain": {
               "type": "string"
             },
-            "minItems": 1,
-            "uniqueItems": true
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       }
     },
     "mounts": {
       "type": "array",
-      "description": "Additional host directories mounted into the VM. Each entry is a host path, optionally suffixed with ':ro' or ':rw' to set the mount mode (default: ro). The host path is expanded via ~ and used as both host and guest path. Example: \"~/projects/work/foo\" or \"~/projects/work/bar:rw\". Global and per-project lists are concatenated.",
       "items": {
         "type": "string"
-      },
-      "uniqueItems": true
+      }
     },
     "hiddenPaths": {
       "type": "array",
-      "description": "Workspace paths completely hidden from the guest. Useful for secret files like .env. Paths are relative to workspace root (prefix with /).",
       "items": {
         "type": "string"
       }
     },
     "tmpfsPaths": {
       "type": "array",
-      "description": "Workspace paths shadowed from host with guest-writable tmpfs overlay. Useful for dependency directories like node_modules or .venv that should be isolated. Paths are relative to workspace root (prefix with /).",
       "items": {
         "type": "string"
       }
     },
     "env": {
       "type": "object",
-      "description": "Environment variables set inside the dungeon VM. Global and per-project are merged; per-project wins on key conflict.",
-      "additionalProperties": {
-        "type": "string"
+      "patternProperties": {
+        "^.*$": {
+          "type": "string"
+        }
       }
     },
     "resources": {
       "type": "object",
-      "description": "VM resource limits. Per-project overrides global field-by-field.",
-      "additionalProperties": false,
       "properties": {
         "memory": {
-          "type": "string",
-          "description": "VM memory size in qemu syntax (e.g. \"1G\", \"2G\", \"512M\"). Default: \"1G\"."
+          "type": "string"
         },
         "cpus": {
           "type": "integer",
-          "description": "Number of virtual CPUs. Default: 2.",
           "minimum": 1
         }
       }
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -1,20 +1,31 @@
-export interface SecretConfig {
-  keychain: string; // keychain account name
-  hosts: string[]; // hosts that receive this secret
-}
+import { type Static, Type } from "typebox";
 
-export interface DungeonConfig {
-  allowedHosts?: string[];
-  secrets?: Record<string, SecretConfig>;
-  mounts?: string[];
-  hiddenPaths?: string[]; // completely hidden from guest (ENOENT)
-  tmpfsPaths?: string[]; // shadowed from host, guest writes to tmpfs cache
-  env?: Record<string, string>;
-  resources?: {
-    memory?: string; // qemu syntax, e.g. "1G", "2G"
-    cpus?: number; // e.g. 2, 4
-  };
-}
+const SecretConfigSchema = Type.Object({
+  keychain: Type.String(),
+  hosts: Type.Array(Type.String()),
+});
+
+export const DungeonConfigSchema = Type.Object(
+  {
+    $schema: Type.Optional(Type.String()),
+    allowedHosts: Type.Optional(Type.Array(Type.String())),
+    secrets: Type.Optional(Type.Record(Type.String(), SecretConfigSchema)),
+    mounts: Type.Optional(Type.Array(Type.String())),
+    hiddenPaths: Type.Optional(Type.Array(Type.String())),
+    tmpfsPaths: Type.Optional(Type.Array(Type.String())),
+    env: Type.Optional(Type.Record(Type.String(), Type.String())),
+    resources: Type.Optional(
+      Type.Object({
+        memory: Type.Optional(Type.String()),
+        cpus: Type.Optional(Type.Integer({ minimum: 1 })),
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export type DungeonConfig = Static<typeof DungeonConfigSchema>;
+export type SecretConfig = Static<typeof SecretConfigSchema>;
 
 export interface PathMapping {
   hostDir: string;
