@@ -224,7 +224,14 @@ export class DungeonVm {
       ctx.ui.notify(`Dungeon config: ${display}`, "info");
     }
     const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
-    const env = { HOME: this.home, ...(config.env ?? {}), ...proxyEnv };
+    const env = {
+      HOME: this.home,
+      XDG_CONFIG_HOME: path.join(this.home, ".config"),
+      XDG_DATA_HOME: path.join(this.home, ".local/share"),
+      XDG_CACHE_HOME: path.join(this.home, ".cache"),
+      ...(config.env ?? {}),
+      ...proxyEnv,
+    };
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);
 
     const created = await VM.create({
