@@ -23,15 +23,6 @@ export function computeGuestWorkspace(localCwd: string): string {
   return localCwd;
 }
 
-export function sanitizeEnv(env?: NodeJS.ProcessEnv): Record<string, string> | undefined {
-  if (!env) return undefined;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (typeof v === "string") out[k] = v;
-  }
-  return out;
-}
-
 export function createDungeonReadOps(vm: SandboxExec, mappings: PathMapping[]): ReadOperations {
   return {
     readFile: async (p) => {
@@ -97,7 +88,7 @@ export function createDungeonEditOps(vm: SandboxExec, mappings: PathMapping[]): 
 
 export function createDungeonBashOps(vm: SandboxExec, mappings: PathMapping[]): BashOperations {
   return {
-    exec: async (command, cwd, { onData, signal, timeout, env }) => {
+    exec: async (command, cwd, { onData, signal, timeout }) => {
       const guestCwd = toGuestPath(mappings, cwd);
 
       const ac = new AbortController();
@@ -117,7 +108,7 @@ export function createDungeonBashOps(vm: SandboxExec, mappings: PathMapping[]): 
         const proc = vm.exec(["/bin/bash", "-lc", command], {
           cwd: guestCwd,
           signal: ac.signal,
-          env: sanitizeEnv(env),
+          env: undefined,
           stdout: "pipe",
           stderr: "pipe",
         });

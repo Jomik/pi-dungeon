@@ -224,7 +224,7 @@ export class DungeonVm {
       ctx.ui.notify(`Dungeon config: ${display}`, "info");
     }
     const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
-    const env = { ...(config.env ?? {}), ...proxyEnv };
+    const env = { HOME: this.home, ...(config.env ?? {}), ...proxyEnv };
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);
 
     const created = await VM.create({

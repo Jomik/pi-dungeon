@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { PathMapping } from "./types.ts";
 
-export const GUEST_PI_AGENT = "/root/.pi/agent";
+const HOME = os.homedir();
 export const GUEST_GITHUB_REPOS = "/tmp/pi-github-repos";
 
 export function shQuote(value: string): string {
@@ -11,10 +11,9 @@ export function shQuote(value: string): string {
 }
 
 export function createPathMappings(localCwd: string, guestWorkspace: string): PathMapping[] {
-  const home = os.homedir();
   return [
     { hostDir: localCwd, guestDir: guestWorkspace },
-    { hostDir: path.join(home, ".pi/agent"), guestDir: GUEST_PI_AGENT },
+    { hostDir: path.join(HOME, ".pi/agent"), guestDir: path.join(HOME, ".pi/agent") },
     { hostDir: "/tmp/pi-github-repos", guestDir: GUEST_GITHUB_REPOS },
   ];
 }

@@ -13,7 +13,7 @@ import { createShadowPathPredicate } from "@earendil-works/gondolin";
 import { describe, expect, it } from "vitest";
 
 import { buildMounts, PI_AGENT_ALWAYS_SHADOWED, WORKSPACE_ALWAYS_SHADOWED } from "../src/mounts.ts";
-import { GUEST_GITHUB_REPOS, GUEST_PI_AGENT } from "../src/paths.ts";
+import { GUEST_GITHUB_REPOS } from "../src/paths.ts";
 
 // ---------------------------------------------------------------------------
 // Shadow-policy constants
@@ -101,9 +101,9 @@ describe("buildMounts", () => {
     expect(mounts[guestWorkspace]).toBeDefined();
   });
 
-  it("returns a mounts entry for GUEST_PI_AGENT", () => {
+  it("returns a mounts entry for pi agent at home path", () => {
     const { mounts } = buildMounts({}, localCwd, guestWorkspace, home);
-    expect(mounts[GUEST_PI_AGENT]).toBeDefined();
+    expect(mounts[path.join(home, ".pi/agent")]).toBeDefined();
   });
 
   it("returns a mounts entry for GUEST_GITHUB_REPOS", () => {

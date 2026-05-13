@@ -19,7 +19,7 @@ import {
   type VirtualProvider,
 } from "@earendil-works/gondolin";
 
-import { GUEST_GITHUB_REPOS, GUEST_PI_AGENT } from "./paths.ts";
+import { GUEST_GITHUB_REPOS } from "./paths.ts";
 import type { DungeonConfig, PathMapping } from "./types.ts";
 
 /**
@@ -181,12 +181,13 @@ export function buildMounts(
     // layer for dungeon policy file and any user-configured hiddenPaths.
     [guestWorkspace]: workspaceMount,
     // ~/.pi/agent: live agent skills/config visible, but credentials hidden.
-    [GUEST_PI_AGENT]: new ShadowProvider(new RealFSProvider(path.join(home, ".pi/agent")), {
+    [path.join(home, ".pi/agent")]: new ShadowProvider(new RealFSProvider(path.join(home, ".pi/agent")), {
       shouldShadow: createShadowPathPredicate(PI_AGENT_ALWAYS_SHADOWED),
     }),
     // jj config: read-only so the guest inherits host identity settings.
-    // Mounted at the same path as host so ~ resolves correctly (HOME = host homedir in guest).
     [path.join(home, ".config/jj")]: new ReadonlyProvider(new RealFSProvider(path.join(home, ".config/jj"))),
+    // git config: read-only so the guest inherits host identity settings.
+    [path.join(home, ".config/git")]: new ReadonlyProvider(new RealFSProvider(path.join(home, ".config/git"))),
     // Shared GitHub repo cache: read-only.
     [GUEST_GITHUB_REPOS]: new ReadonlyProvider(new RealFSProvider("/tmp/pi-github-repos")),
   };
