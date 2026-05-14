@@ -248,6 +248,7 @@ export class AttachedExecProcess implements SandboxExecProcess {
 
   // --- PromiseLike ---
 
+  // biome-ignore lint/suspicious/noThenProperty: intentionally implements PromiseLike
   then<TResult1 = AttachedExecResult, TResult2 = never>(
     onfulfilled?: ((value: AttachedExecResult) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
