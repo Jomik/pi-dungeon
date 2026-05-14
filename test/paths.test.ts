@@ -99,12 +99,12 @@ describe("createPathMappings", () => {
     });
   });
 
-  it("second mapping is ~/.pi/agent → /root/.pi/agent", () => {
+  it("second mapping is ~/.pi/agent → ~/.pi/agent", () => {
     const home = os.homedir();
     const mappings = createPathMappings("/host/workspace", "/guest/workspace");
     expect(mappings[1]).toEqual({
       hostDir: `${home}/.pi/agent`,
-      guestDir: "/root/.pi/agent",
+      guestDir: `${home}/.pi/agent`,
     });
   });
 
