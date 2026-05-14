@@ -28,6 +28,7 @@
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
+    "check:schema": "node scripts/generate-schema.ts && git diff --exit-code dungeon.schema.json",
     "build": "npx gondolin build --config build-config.json --output ./image",
     "test": "vitest run"
   },

@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!node_modules", "!package-lock.json", "!image"]
+    "includes": ["**", "!node_modules", "!package-lock.json", "!image", "!dungeon.schema.json"]
   },
   "formatter": {
     "enabled": true,
