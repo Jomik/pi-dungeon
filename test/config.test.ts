@@ -95,21 +95,24 @@ describe("mergeConfigs", () => {
     expect(result.hiddenPaths).toEqual(["/.env", "/.env.local", "/.secrets"]);
   });
 
-  it("concatenates tmpfsPaths from both configs", () => {
-    const result = mergeConfigs({ tmpfsPaths: ["/node_modules"] }, { tmpfsPaths: ["/.venv"] });
-    expect(result.tmpfsPaths).toEqual(["/node_modules", "/.venv"]);
-  });
-
   it("handles partial configs with only hiddenPaths on one side", () => {
     const result = mergeConfigs({ hiddenPaths: ["/.env"] }, {});
     expect(result.hiddenPaths).toEqual(["/.env"]);
-    expect(result.tmpfsPaths).toEqual([]);
   });
 
-  it("handles partial configs with only tmpfsPaths on one side", () => {
-    const result = mergeConfigs({}, { tmpfsPaths: ["/node_modules"] });
-    expect(result.hiddenPaths).toEqual([]);
-    expect(result.tmpfsPaths).toEqual(["/node_modules"]);
+  it("concatenates cachePaths from both configs", () => {
+    const result = mergeConfigs({ cachePaths: ["/root/.cache/npm"] }, { cachePaths: ["/root/.cache/pip"] });
+    expect(result.cachePaths).toEqual(["/root/.cache/npm", "/root/.cache/pip"]);
+  });
+
+  it("handles partial configs with only cachePaths on one side (global)", () => {
+    const result = mergeConfigs({ cachePaths: ["/root/.cache/npm"] }, {});
+    expect(result.cachePaths).toEqual(["/root/.cache/npm"]);
+  });
+
+  it("handles partial configs with only cachePaths on one side (project)", () => {
+    const result = mergeConfigs({}, { cachePaths: ["/root/.cache/pip"] });
+    expect(result.cachePaths).toEqual(["/root/.cache/pip"]);
   });
 
   it("merges env, project wins on conflict", () => {
@@ -173,7 +176,6 @@ describe("validateConfig", () => {
         secrets: { TOKEN: { keychain: "my-keychain", hosts: ["example.com"] } },
         mounts: ["~/data", "~/writable:rw"],
         hiddenPaths: ["/.env"],
-        tmpfsPaths: ["/tmp"],
       },
       fp,
     );
@@ -254,8 +256,8 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ hiddenPaths: "/secret" }, fp)).toThrow(/\/hiddenPaths: must be array/);
   });
 
-  it("throws on tmpfsPaths containing non-strings", () => {
-    expect(() => validateConfig({ tmpfsPaths: [false] }, fp)).toThrow(/\/tmpfsPaths\/0: must be string/);
+  it("throws on cachePaths containing non-strings", () => {
+    expect(() => validateConfig({ cachePaths: [42] }, fp)).toThrow(/\/cachePaths\/0: must be string/);
   });
 
   it("accepts valid env object", () => {

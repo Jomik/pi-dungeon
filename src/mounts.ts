@@ -47,7 +47,7 @@ export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions", "/dungeon.js
 export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredicate {
   // Normalise: ensure leading /, remove trailing /
   const normalise = (p: string): string => {
-    let s = p.startsWith("/") ? p : "/" + p;
+    let s = p.startsWith("/") ? p : `/${p}`;
     s = s.replace(/\/+$/, "");
     return s || "/";
   };
@@ -91,13 +91,13 @@ export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredica
       // Plain prefix pattern — same semantics as gondolin.
       const norm = normalise(raw);
       matchers.push((filePath: string) => {
-        return filePath === norm || filePath.startsWith(norm + "/");
+        return filePath === norm || filePath.startsWith(`${norm}/`);
       });
     }
   }
 
   return (ctx) => {
-    const filePath = path.posix.normalize(ctx.path.startsWith("/") ? ctx.path : "/" + ctx.path);
+    const filePath = path.posix.normalize(ctx.path.startsWith("/") ? ctx.path : `/${ctx.path}`);
     return matchers.some((m) => m(filePath));
   };
 }
@@ -133,19 +133,50 @@ export function buildMounts(
   // Layer 1 (innermost): real host filesystem.
   let workspaceBackend: VirtualProvider = new RealFSProvider(localCwd);
 
-  // Layer 2: tmpfs overlay for config.tmpfsPaths (e.g. node_modules, .venv).
-  // Guest writes are stored in a per-workspace on-disk cache so they survive
-  // VM restarts, but never touch the host workspace directory.
-  const tmpfsPaths = config.tmpfsPaths ?? [];
-  if (tmpfsPaths.length > 0) {
-    const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
-    const cacheDir = path.join(home, ".cache/pi-dungeon/workspace", cwdHash);
-    fs.mkdirSync(cacheDir, { recursive: true });
-    workspaceBackend = new ShadowProvider(workspaceBackend, {
-      shouldShadow: createGlobShadowPathPredicate(tmpfsPaths),
-      writeMode: "tmpfs",
-      tmpfs: new RealFSProvider(cacheDir),
-    });
+  // Pre-process cachePaths: split into workspace-internal (ShadowProvider
+  // overlay) vs external (separate RW mount).  External entries are collected
+  // here and inserted into the mounts map later alongside other projectMounts.
+  const absoluteCacheEntries: Array<{ guestPath: string; backingDir: string }> = [];
+  for (const entry of config.cachePaths ?? []) {
+    if (entry.includes("*")) {
+      // Glob pattern (e.g. `**/node_modules`): cannot be resolved to an
+      // absolute path, so it is always workspace-scoped.  Hash includes
+      // localCwd so the backing store is isolated per project.
+      const hash = crypto.createHash("sha256").update(`${localCwd}:${entry}`).digest("hex").slice(0, 16);
+      const backingDir = path.join(home, ".cache/pi-dungeon", hash);
+      fs.mkdirSync(backingDir, { recursive: true });
+      workspaceBackend = new ShadowProvider(workspaceBackend, {
+        shouldShadow: createGlobShadowPathPredicate([entry]),
+        writeMode: "tmpfs",
+        tmpfs: new RealFSProvider(backingDir),
+      });
+    } else {
+      // Resolve to absolute path: expand ~, then resolve relative paths
+      // against localCwd.
+      const expanded = entry.replace(/^~/, home);
+      const absolutePath =
+        (expanded.startsWith("/") ? expanded : path.resolve(localCwd, expanded)).replace(/\/+$/, "") || "/";
+      if (absolutePath === localCwd) {
+        // Cannot cache the entire workspace root — skip.
+        continue;
+      }
+      const hash = crypto.createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
+      const backingDir = path.join(home, ".cache/pi-dungeon", hash);
+      fs.mkdirSync(backingDir, { recursive: true });
+      if (absolutePath.startsWith(`${localCwd}/`)) {
+        // Workspace-internal: ShadowProvider overlay on the workspace backend.
+        // The predicate matches the path relative to the workspace root.
+        const relativePart = absolutePath.slice(localCwd.length);
+        workspaceBackend = new ShadowProvider(workspaceBackend, {
+          shouldShadow: createGlobShadowPathPredicate([relativePart]),
+          writeMode: "tmpfs",
+          tmpfs: new RealFSProvider(backingDir),
+        });
+      } else {
+        // External: separate RW mount backed by the per-path cache dir.
+        absoluteCacheEntries.push({ guestPath: absolutePath, backingDir });
+      }
+    }
   }
 
   // Layer 3 (outermost): deny layer for security-critical paths that must
@@ -164,8 +195,8 @@ export function buildMounts(
     for (const entry of config.mounts) {
       // Split optional :ro/:rw suffix
       const match = entry.match(/^(.*?)(?::(ro|rw))?$/);
-      const rawPath = match![1]!;
-      const mode = (match![2] ?? "ro") as "ro" | "rw";
+      const rawPath = match?.[1] ?? "";
+      const mode = (match?.[2] ?? "ro") as "ro" | "rw";
       // Expand ~ using the home parameter
       const expandedPath = rawPath.replace(/^~/, home);
       const provider = new RealFSProvider(expandedPath);
@@ -173,6 +204,13 @@ export function buildMounts(
       projectMounts[expandedPath] = mode === "rw" ? provider : new ReadonlyProvider(provider);
       pendingMappings.push({ hostDir: expandedPath, guestDir: expandedPath });
     }
+  }
+
+  // External cachePaths: real RW mounts backed by the per-path cache dir.
+  // Guest path = the absolute path; backing dir = ~/.cache/pi-dungeon/<hash>.
+  for (const { guestPath, backingDir } of absoluteCacheEntries) {
+    projectMounts[guestPath] = new RealFSProvider(backingDir);
+    pendingMappings.push({ hostDir: backingDir, guestDir: guestPath });
   }
 
   const mounts: Record<string, VirtualProvider> = {

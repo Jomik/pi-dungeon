@@ -94,7 +94,7 @@ All tiers use the same schema:
     "MY_VAR": "value"
   },
   "hiddenPaths": ["/.env", "/.env.*"],
-  "tmpfsPaths": ["/node_modules", "/.venv"]
+  "cachePaths": ["~/.cache/uv", "~/.cache/npm", "~/.cargo/registry"]
 }
 ```
 
@@ -105,7 +105,7 @@ All tiers use the same schema:
 - `mounts` — merged; per-project wins on key conflict
 - `env` — merged; per-project wins on key conflict
 - `hiddenPaths` — concatenated
-- `tmpfsPaths` — concatenated
+- `cachePaths` — concatenated
 
 ### Configuration Resolution
 
@@ -154,7 +154,12 @@ Global and per-project are merged; per-project wins on key conflict.
   - `path` — host path; supports `~` expansion.
   - `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
 - `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths are relative to workspace root (prefix with `/`).
-- `tmpfsPaths` — workspace paths shadowed from the host with a guest-writable tmpfs overlay. Useful for dependency directories like `node_modules` or `.venv` that should be isolated from the host. Paths are relative to workspace root (prefix with `/`). Writes are cached per-workspace across VM restarts.
+- `cachePaths` — paths backed by persistent host-side cache at `~/.cache/pi-dungeon/<hash>` that survives VM rebuilds.
+  - Resolved to absolute: `~` expands to home, relative paths resolve against the project directory.
+  - Hash is derived from the absolute path — same absolute path = same cache (naturally shared across all sandboxes), different absolute path = different cache (naturally per-project).
+  - Paths inside the project directory are overlaid on the workspace backend; all other paths are mounted as separate read-write entries.
+  - Supports glob patterns like `**/node_modules` for workspace-scoped matching (hash uses `localCwd:pattern` for per-project isolation).
+  - Merged by concatenation from global + ancestor + project configs.
 
 ### Resources
 
@@ -174,13 +179,15 @@ Control how much memory and CPU the dungeon VM gets:
 
 Per-project `resources` overrides global field-by-field (e.g. a per-project `memory` overrides only memory, leaving global `cpus` in effect).
 
-Both `hiddenPaths` and `tmpfsPaths` support three pattern types:
+`hiddenPaths` supports three pattern types:
 
 | Pattern | Example | Matches |
 |---------|---------|--------|
 | `/path` | `/node_modules` | Exact prefix at workspace root |
 | `**/name` | `**/bin` | Segment at any depth (`/bin`, `/src/App/bin`, …) |
 | `/path.*` | `/.env.*` | Wildcard in last segment (`/.env.local`, `/.env.production`, …) |
+
+`cachePaths` uses path resolution, not workspace-relative patterns: `~` expands to home, relative paths resolve against the project directory, and glob patterns like `**/node_modules` are workspace-scoped. A plain `/path` entry is an **absolute** host path, not a workspace-relative prefix.
 
 The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
 
@@ -221,7 +228,7 @@ All other network access is denied. DNS is synthetic (no DNS tunneling).
 
 | Guest path | Host path | Mode |
 |------------|-----------|------|
-| `$CWD` | `$CWD` | read-write (ShadowProvider; `/.pi/dungeon.json` always shadowed; `hiddenPaths`/`tmpfsPaths` configurable) |
+| `$CWD` | `$CWD` | read-write (ShadowProvider; `/.pi/dungeon.json` always shadowed; `hiddenPaths`/`cachePaths` configurable) |
 | `/root/.pi/agent` | `~/.pi/agent` | read-write (ShadowProvider; `/auth.json` and `/sessions` shadowed) |
 | `~/.config/jj` | `~/.config/jj` | read-only |
 | `/tmp/pi-github-repos` | `/tmp/pi-github-repos` | read-only |

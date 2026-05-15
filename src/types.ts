@@ -12,7 +12,7 @@ export const DungeonConfigSchema = Type.Object(
     secrets: Type.Optional(Type.Record(Type.String(), SecretConfigSchema)),
     mounts: Type.Optional(Type.Array(Type.String())),
     hiddenPaths: Type.Optional(Type.Array(Type.String())),
-    tmpfsPaths: Type.Optional(Type.Array(Type.String())),
+    cachePaths: Type.Optional(Type.Array(Type.String())),
     env: Type.Optional(Type.Record(Type.String(), Type.String())),
     resources: Type.Optional(
       Type.Object({

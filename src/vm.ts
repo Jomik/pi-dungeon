@@ -204,7 +204,7 @@ export class DungeonVm {
 
   private async _attach(sessionId: string, ctx?: ExtensionContext): Promise<SandboxExec> {
     const session = await findSession(sessionId);
-    if (!session || !session.alive) {
+    if (!session?.alive) {
       // Stale marker — previous session is gone. Remove and boot fresh.
       removeSessionMarker(this.localCwd);
       return this._start(ctx);

@@ -65,7 +65,7 @@ export function mergeConfigs(globalCfg: DungeonConfig, project: DungeonConfig): 
     secrets: { ...(globalCfg.secrets ?? {}), ...(project.secrets ?? {}) },
     mounts: mergedMounts(),
     hiddenPaths: [...(globalCfg.hiddenPaths ?? []), ...(project.hiddenPaths ?? [])],
-    tmpfsPaths: [...(globalCfg.tmpfsPaths ?? []), ...(project.tmpfsPaths ?? [])],
+    cachePaths: [...(globalCfg.cachePaths ?? []), ...(project.cachePaths ?? [])],
     env: { ...(globalCfg.env ?? {}), ...(project.env ?? {}) },
     resources: { ...(globalCfg.resources ?? {}), ...(project.resources ?? {}) },
   };

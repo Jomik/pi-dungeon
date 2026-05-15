@@ -281,7 +281,7 @@ export class AttachedExecProcess implements SandboxExecProcess {
           async next(): Promise<IteratorResult<OutputChunk>> {
             // Drain buffered chunks first
             if (self._queue.length > 0) {
-              return { value: self._queue.shift()!, done: false };
+              return { value: self._queue.shift() as Uint8Array, done: false };
             }
 
             // If already done and queue is empty, we're finished
@@ -295,7 +295,7 @@ export class AttachedExecProcess implements SandboxExecProcess {
               // Re-check inside the promise body to avoid a race where
               // pushOutput/finish ran between the queue check above and now.
               if (self._queue.length > 0) {
-                resolve(self._queue.shift()!);
+                resolve(self._queue.shift() as Uint8Array);
               } else if (self._done) {
                 resolve(null);
               } else {

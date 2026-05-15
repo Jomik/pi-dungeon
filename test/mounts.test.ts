@@ -7,6 +7,8 @@
  *   - auth.json and sessions are always hidden from the ~/.pi/agent mount.
  */
 
+import crypto from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createShadowPathPredicate } from "@earendil-works/gondolin";
@@ -24,7 +26,7 @@ describe("WORKSPACE_ALWAYS_SHADOWED", () => {
     expect(WORKSPACE_ALWAYS_SHADOWED).toContain("/.pi/dungeon.json");
   });
 
-  it("does not contain /node_modules (now configurable via tmpfsPaths)", () => {
+  it("does not contain /node_modules (configurable via cachePaths)", () => {
     expect(WORKSPACE_ALWAYS_SHADOWED).not.toContain("/node_modules");
   });
 });
@@ -53,7 +55,7 @@ describe("shadow predicate for WORKSPACE_ALWAYS_SHADOWED", () => {
     expect(pred({ op: "stat", path: "/.pi/dungeon.json" })).toBe(true);
   });
 
-  it("allows /node_modules (no longer hardcoded; use tmpfsPaths config)", () => {
+  it("allows /node_modules (no longer hardcoded; use cachePaths config)", () => {
     expect(pred({ op: "stat", path: "/node_modules" })).toBe(false);
   });
 
@@ -183,15 +185,112 @@ describe("buildMounts", () => {
     expect(pendingMappings).toHaveLength(2);
   });
 
-  it("does not crash and returns workspace mount when tmpfsPaths is configured", () => {
-    const config = { tmpfsPaths: ["/node_modules"] };
-    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
-    expect(mounts[guestWorkspace]).toBeDefined();
-  });
-
   it("does not crash and returns workspace mount when hiddenPaths is configured", () => {
     const config = { hiddenPaths: ["/.env"] };
     const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
     expect(mounts[guestWorkspace]).toBeDefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // cachePaths
+  // ---------------------------------------------------------------------------
+
+  it("cachePaths with relative path resolves workspace-internal and creates workspace mount", () => {
+    // `node_modules` → path.resolve("/tmp", "node_modules") = "/tmp/node_modules"
+    // which starts with localCwd + "/" → workspace-internal overlay
+    const config = { cachePaths: ["node_modules"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("cachePaths ./dist resolves to absolute workspace-internal path and produces no pendingMappings", () => {
+    const config = { cachePaths: ["./dist"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("cachePaths with relative glob pattern creates workspace overlay without crashing", () => {
+    const config = { cachePaths: ["**/node_modules"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+  });
+
+  it("cachePaths with ~ path expands to external absolute mount", () => {
+    const config = { cachePaths: ["~/.cache/uv"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    const expandedPath = path.join(home, ".cache/uv");
+    expect(mounts[expandedPath]).toBeDefined();
+    expect(pendingMappings).toHaveLength(1);
+    expect(pendingMappings[0]?.guestDir).toBe(expandedPath);
+  });
+
+  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/<hash> for workspace-internal path", () => {
+    const config = { cachePaths: ["./dist"] };
+    buildMounts(config, localCwd, guestWorkspace, home);
+    const absolutePath = path.resolve(localCwd, "./dist");
+    const hash = crypto.createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
+    const expectedDir = path.join(home, ".cache/pi-dungeon", hash);
+    expect(fs.existsSync(expectedDir)).toBe(true);
+  });
+
+  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/<hash> for external path", () => {
+    const config = { cachePaths: ["~/.cache/uv"] };
+    buildMounts(config, localCwd, guestWorkspace, home);
+    const expandedPath = path.join(home, ".cache/uv");
+    const hash = crypto.createHash("sha256").update(expandedPath).digest("hex").slice(0, 16);
+    const expectedDir = path.join(home, ".cache/pi-dungeon", hash);
+    expect(fs.existsSync(expectedDir)).toBe(true);
+  });
+
+  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/<hash> for glob pattern", () => {
+    const config = { cachePaths: ["**/node_modules"] };
+    buildMounts(config, localCwd, guestWorkspace, home);
+    const hash = crypto.createHash("sha256").update(`${localCwd}:**/node_modules`).digest("hex").slice(0, 16);
+    const expectedDir = path.join(home, ".cache/pi-dungeon", hash);
+    expect(fs.existsSync(expectedDir)).toBe(true);
+  });
+
+  it("cachePaths external path does not shadow workspace mount", () => {
+    const config = { cachePaths: ["~/.cache/uv"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    const expandedPath = path.join(home, ".cache/uv");
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(mounts[expandedPath]).toBeDefined();
+  });
+
+  it("cachePaths external path pendingMapping uses backingDir as hostDir", () => {
+    const config = { cachePaths: ["~/.cache/uv"] };
+    const { pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    const expandedPath = path.join(home, ".cache/uv");
+    const hash = crypto.createHash("sha256").update(expandedPath).digest("hex").slice(0, 16);
+    const expectedBackingDir = path.join(home, ".cache/pi-dungeon", hash);
+    expect(pendingMappings[0]?.hostDir).toBe(expectedBackingDir);
+    expect(pendingMappings[0]?.guestDir).toBe(expandedPath);
+  });
+
+  it("cachePaths trailing slash is normalised: same hash and mount key as without slash", () => {
+    const withSlash = buildMounts({ cachePaths: ["~/.cache/uv/"] }, localCwd, guestWorkspace, home);
+    const withoutSlash = buildMounts({ cachePaths: ["~/.cache/uv"] }, localCwd, guestWorkspace, home);
+    const expandedPath = path.join(home, ".cache/uv");
+    // Both should define the same mount key (no trailing slash)
+    expect(withSlash.mounts[expandedPath]).toBeDefined();
+    expect(withoutSlash.mounts[expandedPath]).toBeDefined();
+    // pendingMappings hostDir should be the same backing dir (same hash)
+    expect(withSlash.pendingMappings[0]?.hostDir).toBe(withoutSlash.pendingMappings[0]?.hostDir);
+  });
+
+  it("cachePaths '.' is silently skipped: no crash, no pendingMappings, workspace mount intact", () => {
+    const config = { cachePaths: ["."] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("workspace-internal and glob cachePaths do not produce pendingMappings", () => {
+    const config = { cachePaths: ["dist", "**/node_modules"] };
+    const { pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(pendingMappings).toEqual([]);
   });
 });
