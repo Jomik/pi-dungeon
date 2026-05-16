@@ -93,7 +93,7 @@ All tiers use the same schema:
     "NODE_ENV": "development",
     "MY_VAR": "value"
   },
-  "hiddenPaths": ["/.env", "/.env.*"],
+  "hiddenPaths": [".env", ".env.*"],
   "cachePaths": ["~/.cache/uv", "~/.cache/npm", "~/.cargo/registry"]
 }
 ```
@@ -153,7 +153,7 @@ Global and per-project are merged; per-project wins on key conflict.
   - Keys are **absolute guest paths** where the directory appears inside the VM.
   - `path` — host path; supports `~` expansion.
   - `mode` — `"ro"` (read-only, default) or `"rw"` (read-write).
-- `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths are relative to workspace root (prefix with `/`).
+- `hiddenPaths` — workspace paths completely hidden from the guest (ENOENT). Useful for secret files like `.env`. Paths resolve the same way as `cachePaths`: `~` expands to home, relative paths (e.g. `.env`, `./dist`) resolve against the project directory, and absolute paths outside the workspace are silently ignored.
 - `cachePaths` — paths backed by persistent host-side cache at `~/.cache/pi-dungeon/<hash>` that survives VM rebuilds.
   - Resolved to absolute: `~` expands to home, relative paths resolve against the project directory.
   - Hash is derived from the absolute path — same absolute path = same cache (naturally shared across all sandboxes), different absolute path = different cache (naturally per-project).
@@ -179,15 +179,17 @@ Control how much memory and CPU the dungeon VM gets:
 
 Per-project `resources` overrides global field-by-field (e.g. a per-project `memory` overrides only memory, leaving global `cpus` in effect).
 
-`hiddenPaths` supports three pattern types:
+`hiddenPaths` and `cachePaths` use the same path resolution: `~` expands to home, relative paths resolve against the project directory, and glob patterns like `**/node_modules` are workspace-scoped. For `cachePaths`, a resolved path outside the workspace creates a separate external mount; for `hiddenPaths`, it is silently ignored.
+
+`hiddenPaths` pattern forms:
 
 | Pattern | Example | Matches |
 |---------|---------|--------|
-| `/path` | `/node_modules` | Exact prefix at workspace root |
+| `path` or `./path` | `.env`, `./dist` | Relative to workspace root |
+| `~/.secret` | `~/.netrc` | Expands home; ignored if outside workspace |
+| `/absolute` | `/tmp/debug` | Absolute host path; ignored if outside workspace |
 | `**/name` | `**/bin` | Segment at any depth (`/bin`, `/src/App/bin`, …) |
-| `/path.*` | `/.env.*` | Wildcard in last segment (`/.env.local`, `/.env.production`, …) |
-
-`cachePaths` uses path resolution, not workspace-relative patterns: `~` expands to home, relative paths resolve against the project directory, and glob patterns like `**/node_modules` are workspace-scoped. A plain `/path` entry is an **absolute** host path, not a workspace-relative prefix.
+| `./path.*` | `./.env.*` | Wildcard in last segment (`.env.local`, `.env.production`, …) |
 
 The keychain value is injected as-is via placeholder replacement. Store raw tokens or raw base64 — the guest constructs the full header (e.g. `Authorization: Basic $ATLASSIAN_TOKEN`).
 

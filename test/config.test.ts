@@ -91,13 +91,13 @@ describe("mergeConfigs", () => {
   });
 
   it("concatenates hiddenPaths from both configs", () => {
-    const result = mergeConfigs({ hiddenPaths: ["/.env"] }, { hiddenPaths: ["/.env.local", "/.secrets"] });
-    expect(result.hiddenPaths).toEqual(["/.env", "/.env.local", "/.secrets"]);
+    const result = mergeConfigs({ hiddenPaths: [".env"] }, { hiddenPaths: [".env.local", ".secrets"] });
+    expect(result.hiddenPaths).toEqual([".env", ".env.local", ".secrets"]);
   });
 
   it("handles partial configs with only hiddenPaths on one side", () => {
-    const result = mergeConfigs({ hiddenPaths: ["/.env"] }, {});
-    expect(result.hiddenPaths).toEqual(["/.env"]);
+    const result = mergeConfigs({ hiddenPaths: [".env"] }, {});
+    expect(result.hiddenPaths).toEqual([".env"]);
   });
 
   it("concatenates cachePaths from both configs", () => {
@@ -175,7 +175,7 @@ describe("validateConfig", () => {
         allowedHosts: ["example.com"],
         secrets: { TOKEN: { keychain: "my-keychain", hosts: ["example.com"] } },
         mounts: ["~/data", "~/writable:rw"],
-        hiddenPaths: ["/.env"],
+        hiddenPaths: [".env"],
       },
       fp,
     );

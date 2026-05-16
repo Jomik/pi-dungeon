@@ -181,11 +181,35 @@ export function buildMounts(
 
   // Layer 3 (outermost): deny layer for security-critical paths that must
   // never be visible to the guest regardless of user config.
-  const hiddenPaths = config.hiddenPaths ?? [];
+  //
+  // Resolve hiddenPaths the same way as cachePaths: expand ~, resolve relative
+  // paths against localCwd, then convert workspace-internal absolute paths to
+  // workspace-relative prefix patterns.  Paths outside the workspace are
+  // silently ignored (no-op) because the ShadowProvider only covers the workspace.
+  const resolvedHiddenPatterns: string[] = [];
+  for (const entry of config.hiddenPaths ?? []) {
+    if (entry.includes("*")) {
+      // Glob pattern — pass through unchanged.
+      resolvedHiddenPatterns.push(entry);
+    } else {
+      const expanded = entry.replace(/^~/, home);
+      const absolutePath =
+        (expanded.startsWith("/") ? expanded : path.resolve(localCwd, expanded)).replace(/\/+$/, "") || "/";
+      if (absolutePath === localCwd) {
+        // Cannot hide the entire workspace root — skip.
+        continue;
+      }
+      if (absolutePath.startsWith(`${localCwd}/`)) {
+        // Workspace-internal: extract the workspace-relative portion.
+        resolvedHiddenPatterns.push(absolutePath.slice(localCwd.length));
+      }
+      // Otherwise (outside workspace) — skip silently.
+    }
+  }
   const alwaysShadowed = createShadowPathPredicate(WORKSPACE_ALWAYS_SHADOWED);
-  const userHidden = createGlobShadowPathPredicate(hiddenPaths);
+  const userHidden = createGlobShadowPathPredicate(resolvedHiddenPatterns);
   const workspaceMount = new ShadowProvider(workspaceBackend, {
-    shouldShadow: hiddenPaths.length > 0 ? (ctx) => alwaysShadowed(ctx) || userHidden(ctx) : alwaysShadowed,
+    shouldShadow: resolvedHiddenPatterns.length > 0 ? (ctx) => alwaysShadowed(ctx) || userHidden(ctx) : alwaysShadowed,
   });
 
   // Build additional mounts and path mappings from user config.

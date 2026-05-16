@@ -186,7 +186,35 @@ describe("buildMounts", () => {
   });
 
   it("does not crash and returns workspace mount when hiddenPaths is configured", () => {
-    const config = { hiddenPaths: ["/.env"] };
+    const config = { hiddenPaths: [".env"] };
+    const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+  });
+
+  it("hiddenPaths with relative path resolves to workspace-relative pattern", () => {
+    // '.env' resolves to localCwd + '/.env' → workspace-relative '/.env'
+    const config = { hiddenPaths: [".env"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("hiddenPaths with ~ path outside workspace is a no-op", () => {
+    const config = { hiddenPaths: ["~/.config/secret"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("hiddenPaths with absolute path outside workspace is a no-op", () => {
+    const config = { hiddenPaths: ["/etc/shadow"] };
+    const { mounts, pendingMappings } = buildMounts(config, localCwd, guestWorkspace, home);
+    expect(mounts[guestWorkspace]).toBeDefined();
+    expect(pendingMappings).toEqual([]);
+  });
+
+  it("hiddenPaths '.' is skipped: cannot hide entire workspace root", () => {
+    const config = { hiddenPaths: ["."] };
     const { mounts } = buildMounts(config, localCwd, guestWorkspace, home);
     expect(mounts[guestWorkspace]).toBeDefined();
   });
