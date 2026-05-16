@@ -17,6 +17,7 @@ import os from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 
+import { InfoPanel } from "./info-panel.ts";
 import { startObsidianBridge } from "./obsidian.ts";
 import { createDungeonBashOps, createDungeonEditOps, createDungeonReadOps, createDungeonWriteOps } from "./tools.ts";
 import { acquireVm, releaseVm } from "./vm.ts";
@@ -125,6 +126,26 @@ export default function (pi: ExtensionAPI) {
         dungeonVm.bypassed = false;
         ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
         ctx.ui.notify("Dungeon re-enabled — tools run in sandbox", "info");
+      } else if (sub === "info") {
+        const config = dungeonVm.loadedConfig;
+        if (!config) {
+          ctx.ui.notify("Dungeon VM has not started yet — no config available", "warning");
+          return;
+        }
+        await ctx.ui.custom(
+          (tui, theme, _keybindings, done) =>
+            new InfoPanel({
+              tui,
+              theme,
+              done: () => done(undefined),
+              config,
+              configSources: dungeonVm.configSources,
+              localCwd,
+              home,
+              bypassed: dungeonVm.bypassed,
+            }),
+          { overlay: true, overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" } },
+        );
       } else {
         const status = dungeonVm.bypassed ? "bypassed (host)" : "active (sandboxed)";
         const sources = dungeonVm.configSources;

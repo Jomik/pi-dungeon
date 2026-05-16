@@ -28,7 +28,7 @@ import { createPathMappings } from "./paths.ts";
 import { resolveHttpHooks } from "./secrets.ts";
 import { buildSshProxyConfig, setupGitInGuest, setupSshInGuest } from "./ssh.ts";
 import { computeGuestWorkspace } from "./tools.ts";
-import type { PathMapping } from "./types.ts";
+import type { DungeonConfig, PathMapping } from "./types.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -137,6 +137,9 @@ export class DungeonVm {
   /** Paths of config files that contributed to the loaded config (in merge order). */
   public configSources: string[] = [];
 
+  /** The merged config loaded at VM start, or null if VM hasn't started yet. */
+  public loadedConfig: DungeonConfig | null = null;
+
   private vm: VM | null = null;
   private attached: AttachedVM | null = null;
   private vmStarting: Promise<SandboxExec> | null = null;
@@ -218,6 +221,7 @@ export class DungeonVm {
 
     const { config, sources: configSources } = loadConfig(this.localCwd);
     this.configSources = configSources;
+    this.loadedConfig = config;
     if (configSources.length > 0 && ctx) {
       const home = os.homedir();
       const display = configSources.map((s) => s.replace(home, "~")).join(", ");
