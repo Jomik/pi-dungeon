@@ -254,12 +254,11 @@ describe("buildMounts", () => {
     expect(pendingMappings[0]?.guestDir).toBe(expandedPath);
   });
 
-  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/<hash> for workspace-internal path", () => {
+  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/workspace/<hash(localCwd)> for workspace-internal path", () => {
     const config = { cachePaths: ["./dist"] };
     buildMounts(config, localCwd, guestWorkspace, home);
-    const absolutePath = path.resolve(localCwd, "./dist");
-    const hash = crypto.createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
-    const expectedDir = path.join(home, ".cache/pi-dungeon", hash);
+    const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
+    const expectedDir = path.join(home, ".cache/pi-dungeon/workspace", cwdHash);
     expect(fs.existsSync(expectedDir)).toBe(true);
   });
 
@@ -272,11 +271,11 @@ describe("buildMounts", () => {
     expect(fs.existsSync(expectedDir)).toBe(true);
   });
 
-  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/<hash> for glob pattern", () => {
+  it("cachePaths creates backing directory at ~/.cache/pi-dungeon/workspace/<hash(localCwd)> for glob pattern", () => {
     const config = { cachePaths: ["**/node_modules"] };
     buildMounts(config, localCwd, guestWorkspace, home);
-    const hash = crypto.createHash("sha256").update(`${localCwd}:**/node_modules`).digest("hex").slice(0, 16);
-    const expectedDir = path.join(home, ".cache/pi-dungeon", hash);
+    const cwdHash = crypto.createHash("sha256").update(localCwd).digest("hex").slice(0, 16);
+    const expectedDir = path.join(home, ".cache/pi-dungeon/workspace", cwdHash);
     expect(fs.existsSync(expectedDir)).toBe(true);
   });
 
