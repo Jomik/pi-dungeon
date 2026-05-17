@@ -97,30 +97,42 @@ export interface LoadedConfig {
   sources: string[]; // paths of files that contributed (in merge order)
 }
 
+/** Returns true if `p` exists and is NOT a symlink. */
+function existsAndNotSymlink(p: string): boolean {
+  try {
+    return !fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Returns true if `p` exists (symlink or not). */
+function pathExists(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function collectAncestorConfigs(localCwd: string): string[] {
   const home = os.homedir();
   const results: string[] = [];
   let current = path.dirname(localCwd);
 
   while (current !== home && current !== path.dirname(current)) {
-    // Check if the directory itself is a symlink — if so, skip but continue walking
-    try {
-      const dirStat = fs.lstatSync(current);
-      if (!dirStat.isSymbolicLink()) {
-        const configPath = path.join(current, ".pi/dungeon.json");
-        try {
-          const fileStat = fs.lstatSync(configPath);
-          if (!fileStat.isSymbolicLink()) {
-            results.push(configPath);
-          }
-        } catch {
-          // file doesn't exist — skip
-        }
+    // Directory doesn't exist — stop walking
+    if (!pathExists(current)) break;
+
+    // Skip symlinked directories but continue walking up
+    if (existsAndNotSymlink(current)) {
+      const configPath = path.join(current, ".pi/dungeon.json");
+      if (existsAndNotSymlink(configPath)) {
+        results.push(configPath);
       }
-    } catch {
-      // directory doesn't exist — stop walking
-      break;
     }
+
     current = path.dirname(current);
   }
 
