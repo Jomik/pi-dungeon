@@ -86,28 +86,58 @@ export function createDungeonEditOps(vm: SandboxExec, mappings: PathMapping[]): 
   return { readFile: r.readFile, access: r.access, writeFile: w.writeFile };
 }
 
+/**
+ * Manages an AbortController + timeout that wraps an external AbortSignal.
+ * Abort or timeout triggers the internal controller; cleanup is guaranteed via dispose().
+ */
+class ExecLifecycle {
+  readonly controller = new AbortController();
+  timedOut = false;
+  private readonly timer: ReturnType<typeof setTimeout> | undefined;
+  private readonly onAbort: (() => void) | undefined;
+  private readonly signal: AbortSignal | undefined;
+  private readonly timeout: number | undefined;
+
+  constructor(signal?: AbortSignal, timeout?: number) {
+    this.signal = signal;
+    this.timeout = timeout;
+
+    if (signal) {
+      this.onAbort = () => this.controller.abort();
+      signal.addEventListener("abort", this.onAbort, { once: true });
+    }
+
+    if (timeout && timeout > 0) {
+      this.timer = setTimeout(() => {
+        this.timedOut = true;
+        this.controller.abort();
+      }, timeout * 1000);
+    }
+  }
+
+  /** Re-throw with a meaningful message if the failure was caused by abort or timeout. */
+  rethrow(err: unknown): never {
+    if (this.signal?.aborted) throw new Error("aborted");
+    if (this.timedOut) throw new Error(`timeout:${this.timeout}`);
+    throw err;
+  }
+
+  dispose(): void {
+    if (this.timer) clearTimeout(this.timer);
+    if (this.onAbort) this.signal?.removeEventListener("abort", this.onAbort);
+  }
+}
+
 export function createDungeonBashOps(vm: SandboxExec, mappings: PathMapping[]): BashOperations {
   return {
     exec: async (command, cwd, { onData, signal, timeout }) => {
       const guestCwd = toGuestPath(mappings, cwd);
-
-      const ac = new AbortController();
-      const onAbort = () => ac.abort();
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      let timedOut = false;
-      const timer =
-        timeout && timeout > 0
-          ? setTimeout(() => {
-              timedOut = true;
-              ac.abort();
-            }, timeout * 1000)
-          : undefined;
+      const lifecycle = new ExecLifecycle(signal, timeout);
 
       try {
         const proc = vm.exec(["/bin/bash", "-lc", command], {
           cwd: guestCwd,
-          signal: ac.signal,
+          signal: lifecycle.controller.signal,
           env: undefined,
           stdout: "pipe",
           stderr: "pipe",
@@ -120,12 +150,9 @@ export function createDungeonBashOps(vm: SandboxExec, mappings: PathMapping[]): 
         const r = await proc;
         return { exitCode: r.exitCode };
       } catch (err) {
-        if (signal?.aborted) throw new Error("aborted");
-        if (timedOut) throw new Error(`timeout:${timeout}`);
-        throw err;
+        return lifecycle.rethrow(err);
       } finally {
-        if (timer) clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
+        lifecycle.dispose();
       }
     },
   };
