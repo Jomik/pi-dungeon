@@ -7,7 +7,7 @@
  * so tools can type against these instead of gondolin's concrete types.
  */
 
-import { connectToSession } from "@earendil-works/gondolin";
+import { connectToSession, type IpcClientCallbacks } from "@earendil-works/gondolin";
 
 /* ------------------------------------------------------------------ */
 /* Public interfaces                                                   */
@@ -344,45 +344,49 @@ export class AttachedVM implements SandboxExec {
 
   constructor(socketPath: string) {
     this.conn = connectToSession(socketPath, {
-      onJson: (msg) => {
-        if (msg.type === "exec_response") {
-          const proc = this.pending.get(msg.id);
-          if (proc) {
-            this.pending.delete(msg.id);
-            proc.finish(msg.exit_code, msg.signal);
-          }
-        } else if (msg.type === "error" && msg.id != null) {
-          const proc = this.pending.get(msg.id);
-          if (proc) {
-            this.pending.delete(msg.id);
-            proc.error(new Error(`Sandbox error [${msg.code}]: ${msg.message}`));
-          }
-        }
-      },
-
-      onBinary: (data: Buffer) => {
-        let frame: ReturnType<typeof decodeOutputFrame>;
-        try {
-          frame = decodeOutputFrame(data);
-        } catch {
-          // Malformed frame — ignore
-          return;
-        }
-        const proc = this.pending.get(frame.id);
-        if (proc) {
-          proc.pushOutput(frame.stream, frame.data);
-        }
-      },
-
-      onClose: (err?: Error) => {
-        this.closed = true;
-        const error = err ?? new Error("IPC connection closed unexpectedly");
-        for (const [, proc] of this.pending) {
-          proc.error(error);
-        }
-        this.pending.clear();
-      },
+      onJson: (msg) => this._handleJson(msg),
+      onBinary: (data: Buffer) => this._handleBinary(data),
+      onClose: (err?: Error) => this._handleClose(err),
     });
+  }
+
+  private _dispatchPending(id: number, fn: (proc: AttachedExecProcess) => void): void {
+    const proc = this.pending.get(id);
+    if (proc) {
+      this.pending.delete(id);
+      fn(proc);
+    }
+  }
+
+  private _handleJson(msg: Parameters<IpcClientCallbacks["onJson"]>[0]): void {
+    if (msg.type === "exec_response") {
+      this._dispatchPending(msg.id, (proc) => proc.finish(msg.exit_code, msg.signal));
+    } else if (msg.type === "error" && msg.id != null) {
+      this._dispatchPending(msg.id, (proc) => proc.error(new Error(`Sandbox error [${msg.code}]: ${msg.message}`)));
+    }
+  }
+
+  private _handleBinary(data: Buffer): void {
+    let frame: ReturnType<typeof decodeOutputFrame>;
+    try {
+      frame = decodeOutputFrame(data);
+    } catch {
+      // Malformed frame — ignore
+      return;
+    }
+    const proc = this.pending.get(frame.id);
+    if (proc) {
+      proc.pushOutput(frame.stream, frame.data);
+    }
+  }
+
+  private _handleClose(err?: Error): void {
+    this.closed = true;
+    const error = err ?? new Error("IPC connection closed unexpectedly");
+    for (const [, proc] of this.pending) {
+      proc.error(error);
+    }
+    this.pending.clear();
   }
 
   /**
