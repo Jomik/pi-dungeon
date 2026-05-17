@@ -36,6 +36,49 @@ export const WORKSPACE_ALWAYS_SHADOWED = ["/.pi/dungeon.json"];
  */
 export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions", "/dungeon.json"];
 
+type Matcher = (filePath: string) => boolean;
+
+/** Normalise a path pattern: ensure leading /, remove trailing / */
+function normalise(p: string): string {
+  let s = p.startsWith("/") ? p : `/${p}`;
+  s = s.replace(/\/+$/, "");
+  return s || "/";
+}
+
+/** Match a segment name at any depth: `**\/name` */
+function matchDoubleStarPrefix(segment: string): Matcher {
+  return (filePath) => {
+    const parts = filePath.split("/").filter(Boolean);
+    return parts.some((p) => p === segment);
+  };
+}
+
+/** Match a wildcard pattern: `*` → any chars within a segment */
+function matchWildcard(raw: string): Matcher {
+  const norm = normalise(raw);
+  const regexSource = norm
+    .split("*")
+    .map((chunk) => chunk.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[^/]+");
+  const re = new RegExp(`^${regexSource}$`);
+  return (filePath) => {
+    if (re.test(filePath)) return true;
+    // Also match children: path starts with a matching prefix + "/"
+    const parts = filePath.split("/");
+    for (let i = parts.length; i > 0; i--) {
+      const prefix = parts.slice(0, i).join("/") || "/";
+      if (re.test(prefix)) return true;
+    }
+    return false;
+  };
+}
+
+/** Match an exact prefix path and all children */
+function matchPrefix(raw: string): Matcher {
+  const norm = normalise(raw);
+  return (filePath) => filePath === norm || filePath.startsWith(`${norm}/`);
+}
+
 /**
  * Create a shadow predicate that supports simple glob patterns.
  *
@@ -45,14 +88,6 @@ export const PI_AGENT_ALWAYS_SHADOWED = ["/auth.json", "/sessions", "/dungeon.js
  * - "/path/with*glob" — "*" matches any characters within the last segment
  */
 export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredicate {
-  // Normalise: ensure leading /, remove trailing /
-  const normalise = (p: string): string => {
-    let s = p.startsWith("/") ? p : `/${p}`;
-    s = s.replace(/\/+$/, "");
-    return s || "/";
-  };
-
-  type Matcher = (filePath: string) => boolean;
   const matchers: Matcher[] = [];
 
   for (const raw of patterns) {
@@ -64,35 +99,13 @@ export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredica
     if (raw.startsWith("**/")) {
       // Double-star prefix: match a segment name at any depth.
       const segment = raw.slice(3);
-      if (!segment) continue;
-      matchers.push((filePath: string) => {
-        const parts = filePath.split("/").filter(Boolean);
-        return parts.some((p) => p === segment);
-      });
+      if (segment) matchers.push(matchDoubleStarPrefix(segment));
     } else if (raw.includes("*")) {
       // Wildcard pattern: convert `*` to `[^/]+`, escape rest.
-      const norm = normalise(raw);
-      const regexSource = norm
-        .split("*")
-        .map((chunk) => chunk.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-        .join("[^/]+");
-      const re = new RegExp(`^${regexSource}$`);
-      matchers.push((filePath: string) => {
-        if (re.test(filePath)) return true;
-        // Also match children: path starts with a matching prefix + "/"
-        const parts = filePath.split("/");
-        for (let i = parts.length; i > 0; i--) {
-          const prefix = parts.slice(0, i).join("/") || "/";
-          if (re.test(prefix)) return true;
-        }
-        return false;
-      });
+      matchers.push(matchWildcard(raw));
     } else {
       // Plain prefix pattern — same semantics as gondolin.
-      const norm = normalise(raw);
-      matchers.push((filePath: string) => {
-        return filePath === norm || filePath.startsWith(`${norm}/`);
-      });
+      matchers.push(matchPrefix(raw));
     }
   }
 
