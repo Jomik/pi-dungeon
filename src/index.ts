@@ -14,7 +14,7 @@
 
 import os from "node:os";
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 
 import { InfoPanel } from "./info-panel.ts";
@@ -87,56 +87,75 @@ export default function (pi: ExtensionAPI) {
     return { systemPrompt: modified };
   });
 
+  function handleExit(ctx: ExtensionCommandContext) {
+    if (dungeonVm.bypassed) {
+      ctx.ui.notify("Already outside the Dungeon", "warning");
+      return;
+    }
+    dungeonVm.bypassed = true;
+    ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("muted", "Dungeon: bypassed"));
+    ctx.ui.notify("Dungeon bypassed — tools run on host", "warning");
+  }
+
+  function handleEnter(ctx: ExtensionCommandContext) {
+    if (!dungeonVm.bypassed) {
+      ctx.ui.notify("Already inside the Dungeon", "warning");
+      return;
+    }
+    dungeonVm.bypassed = false;
+    ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
+    ctx.ui.notify("Dungeon re-enabled — tools run in sandbox", "info");
+  }
+
+  async function handleInfo(ctx: ExtensionCommandContext) {
+    const config = dungeonVm.loadedConfig;
+    if (!config) {
+      ctx.ui.notify("Dungeon VM has not started yet — no config available", "warning");
+      return;
+    }
+    await ctx.ui.custom(
+      (tui, theme, _keybindings, done) =>
+        new InfoPanel({
+          tui,
+          theme,
+          done: () => done(undefined),
+          config,
+          configSources: dungeonVm.configSources,
+          localCwd,
+          home,
+          bypassed: dungeonVm.bypassed,
+        }),
+      { overlay: true, overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" } },
+    );
+  }
+
+  function handleStatus(ctx: ExtensionCommandContext) {
+    const status = dungeonVm.bypassed ? "bypassed (host)" : "active (sandboxed)";
+    const sources = dungeonVm.configSources;
+    const h = os.homedir();
+    if (sources.length > 0) {
+      const display = sources.map((s) => s.replace(h, "~")).join("\n  ");
+      ctx.ui.notify(`Dungeon: ${status}\nConfig sources:\n  ${display}`, "info");
+    } else {
+      ctx.ui.notify(`Dungeon: ${status}\nNo config files loaded`, "info");
+    }
+  }
+
+  const subcommands: Record<string, (ctx: ExtensionCommandContext) => void | Promise<void>> = {
+    exit: handleExit,
+    enter: handleEnter,
+    info: handleInfo,
+  };
+
   pi.registerCommand("dungeon", {
     description: "Toggle Dungeon sandbox: /dungeon exit — bypass sandbox, /dungeon enter — re-enable sandbox",
     handler: async (args, ctx) => {
       const sub = args.trim().toLowerCase();
-      if (sub === "exit") {
-        if (dungeonVm.bypassed) {
-          ctx.ui.notify("Already outside the Dungeon", "warning");
-          return;
-        }
-        dungeonVm.bypassed = true;
-        ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("muted", "Dungeon: bypassed"));
-        ctx.ui.notify("Dungeon bypassed — tools run on host", "warning");
-      } else if (sub === "enter") {
-        if (!dungeonVm.bypassed) {
-          ctx.ui.notify("Already inside the Dungeon", "warning");
-          return;
-        }
-        dungeonVm.bypassed = false;
-        ctx.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: running"));
-        ctx.ui.notify("Dungeon re-enabled — tools run in sandbox", "info");
-      } else if (sub === "info") {
-        const config = dungeonVm.loadedConfig;
-        if (!config) {
-          ctx.ui.notify("Dungeon VM has not started yet — no config available", "warning");
-          return;
-        }
-        await ctx.ui.custom(
-          (tui, theme, _keybindings, done) =>
-            new InfoPanel({
-              tui,
-              theme,
-              done: () => done(undefined),
-              config,
-              configSources: dungeonVm.configSources,
-              localCwd,
-              home,
-              bypassed: dungeonVm.bypassed,
-            }),
-          { overlay: true, overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" } },
-        );
+      const handler = subcommands[sub];
+      if (handler) {
+        await handler(ctx);
       } else {
-        const status = dungeonVm.bypassed ? "bypassed (host)" : "active (sandboxed)";
-        const sources = dungeonVm.configSources;
-        const home = os.homedir();
-        if (sources.length > 0) {
-          const display = sources.map((s) => s.replace(home, "~")).join("\n  ");
-          ctx.ui.notify(`Dungeon: ${status}\nConfig sources:\n  ${display}`, "info");
-        } else {
-          ctx.ui.notify(`Dungeon: ${status}\nNo config files loaded`, "info");
-        }
+        handleStatus(ctx);
       }
     },
   });
