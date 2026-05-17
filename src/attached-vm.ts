@@ -206,9 +206,7 @@ export class AttachedExecProcess implements SandboxExecProcess {
 
     // If a consumer is waiting, wake it immediately
     if (this._waitResolve) {
-      const r = this._waitResolve;
-      this._waitResolve = null;
-      r(chunk);
+      this._wakeConsumer(chunk);
     } else {
       this._queue.push(chunk);
     }
@@ -225,11 +223,7 @@ export class AttachedExecProcess implements SandboxExecProcess {
     this._resolve(result);
 
     // Wake any blocked output() consumer so it can drain and exit
-    if (this._waitResolve) {
-      const r = this._waitResolve;
-      this._waitResolve = null;
-      r(null);
-    }
+    this._wakeConsumer(null);
   }
 
   /** Called on connection error. Rejects the promise. */
@@ -239,11 +233,48 @@ export class AttachedExecProcess implements SandboxExecProcess {
     this._doneError = err;
     this._reject(err);
 
+    this._wakeConsumer(null);
+  }
+
+  private _wakeConsumer(value: OutputChunk | null): void {
     if (this._waitResolve) {
       const r = this._waitResolve;
       this._waitResolve = null;
-      r(null);
+      r(value);
     }
+  }
+
+  private _nextOutputChunk(): Promise<IteratorResult<OutputChunk>> {
+    // Drain buffered chunks first
+    const buffered = this._queue.shift();
+    if (buffered) return Promise.resolve({ value: buffered, done: false });
+
+    // If already done and queue is empty, we're finished
+    if (this._done) {
+      if (this._doneError) return Promise.reject(this._doneError);
+      return Promise.resolve({ value: undefined as unknown as OutputChunk, done: true });
+    }
+
+    // Wait for the next chunk or completion
+    return new Promise<OutputChunk | null>((resolve) => {
+      // Re-check inside the promise body to avoid a race where
+      // pushOutput/finish ran between the queue check above and now.
+      const queued = this._queue.shift();
+      if (queued) {
+        resolve(queued);
+      } else if (this._done) {
+        resolve(null);
+      } else {
+        this._waitResolve = resolve;
+      }
+    }).then((chunk) => {
+      if (chunk === null) {
+        // Connection error: propagate so callers see the rejection
+        if (this._doneError) throw this._doneError;
+        return { value: undefined as unknown as OutputChunk, done: true as const };
+      }
+      return { value: chunk, done: false as const };
+    });
   }
 
   // --- PromiseLike ---
@@ -273,48 +304,10 @@ export class AttachedExecProcess implements SandboxExecProcess {
    * Completes once the exec finishes (or errors).
    */
   output(): AsyncIterable<OutputChunk> {
-    const self = this;
-
     return {
-      [Symbol.asyncIterator](): AsyncIterator<OutputChunk> {
-        return {
-          async next(): Promise<IteratorResult<OutputChunk>> {
-            // Drain buffered chunks first
-            if (self._queue.length > 0) {
-              const chunk = self._queue.shift();
-              if (chunk) return { value: chunk, done: false };
-            }
-
-            // If already done and queue is empty, we're finished
-            if (self._done) {
-              if (self._doneError) throw self._doneError;
-              return { value: undefined as unknown as OutputChunk, done: true };
-            }
-
-            // Wait for the next chunk or completion
-            const chunk = await new Promise<OutputChunk | null>((resolve) => {
-              // Re-check inside the promise body to avoid a race where
-              // pushOutput/finish ran between the queue check above and now.
-              const queued = self._queue.shift();
-              if (queued) {
-                resolve(queued);
-              } else if (self._done) {
-                resolve(null);
-              } else {
-                self._waitResolve = resolve;
-              }
-            });
-
-            if (chunk === null) {
-              // Connection error: propagate so callers see the rejection
-              if (self._doneError) throw self._doneError;
-              return { value: undefined as unknown as OutputChunk, done: true };
-            }
-
-            return { value: chunk, done: false };
-          },
-        };
-      },
+      [Symbol.asyncIterator]: () => ({
+        next: () => this._nextOutputChunk(),
+      }),
     };
   }
 }
@@ -380,6 +373,19 @@ export class AttachedVM implements SandboxExec {
     }
   }
 
+  private _parseCommand(command: string | string[]): { cmd: string; argv: string[] } {
+    if (typeof command === "string") {
+      return { cmd: "/bin/sh", argv: ["-lc", command] };
+    }
+    return { cmd: command[0], argv: command.slice(1) };
+  }
+
+  private _normalizeEnv(env?: string[] | Record<string, string>): string[] | undefined {
+    if (!env) return undefined;
+    if (Array.isArray(env)) return env;
+    return Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  }
+
   private _handleClose(err?: Error): void {
     this.closed = true;
     const error = err ?? new Error("IPC connection closed unexpectedly");
@@ -406,25 +412,10 @@ export class AttachedVM implements SandboxExec {
     }
 
     // Resolve command → cmd + argv
-    let cmd: string;
-    let argv: string[];
-    if (typeof command === "string") {
-      cmd = "/bin/sh";
-      argv = ["-lc", command];
-    } else {
-      cmd = command[0];
-      argv = command.slice(1);
-    }
+    const { cmd, argv } = this._parseCommand(command);
 
     // Normalise env to string[]
-    let env: string[] | undefined;
-    if (options?.env) {
-      if (Array.isArray(options.env)) {
-        env = options.env;
-      } else {
-        env = Object.entries(options.env).map(([k, v]) => `${k}=${v}`);
-      }
-    }
+    const env = this._normalizeEnv(options?.env);
 
     const id = this.nextId++;
     const proc = new AttachedExecProcess();
