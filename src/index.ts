@@ -14,7 +14,7 @@
 
 import os from "node:os";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 
 import { InfoPanel } from "./info-panel.ts";
@@ -42,53 +42,34 @@ export default function (pi: ExtensionAPI) {
     await releaseVm(localCwd);
   });
 
-  pi.registerTool({
-    ...localRead,
-    async execute(id, params, signal, onUpdate, ctx) {
-      if (dungeonVm.bypassed) return localRead.execute(id, params, signal, onUpdate);
-      const activeVm = await dungeonVm.ensure(ctx);
-      const tool = createReadTool(localCwd, {
-        operations: createDungeonReadOps(activeVm, dungeonVm.mappings),
-      });
-      return tool.execute(id, params, signal, onUpdate);
-    },
-  });
+  // biome-ignore lint/suspicious/noExplicitAny: tool schemas vary; the helper erases param/ops differences
+  function registerDungeonTool<T extends (...args: any[]) => any>(
+    localTool: ReturnType<T>,
+    createTool: T,
+    createOps: (vm: Awaited<ReturnType<typeof dungeonVm.ensure>>, mappings: typeof dungeonVm.mappings) => unknown,
+  ) {
+    pi.registerTool({
+      ...localTool,
+      async execute(
+        id: string,
+        params: never,
+        signal: AbortSignal | undefined,
+        onUpdate: undefined,
+        ctx: ExtensionContext,
+      ) {
+        if (dungeonVm.bypassed) return localTool.execute(id, params, signal, onUpdate);
+        const activeVm = await dungeonVm.ensure(ctx);
+        // biome-ignore lint/suspicious/noExplicitAny: createTool options type varies per tool
+        const tool = createTool(localCwd, { operations: createOps(activeVm, dungeonVm.mappings) as any });
+        return tool.execute(id, params, signal, onUpdate);
+      },
+    });
+  }
 
-  pi.registerTool({
-    ...localWrite,
-    async execute(id, params, signal, onUpdate, ctx) {
-      if (dungeonVm.bypassed) return localWrite.execute(id, params, signal, onUpdate);
-      const activeVm = await dungeonVm.ensure(ctx);
-      const tool = createWriteTool(localCwd, {
-        operations: createDungeonWriteOps(activeVm, dungeonVm.mappings),
-      });
-      return tool.execute(id, params, signal, onUpdate);
-    },
-  });
-
-  pi.registerTool({
-    ...localEdit,
-    async execute(id, params, signal, onUpdate, ctx) {
-      if (dungeonVm.bypassed) return localEdit.execute(id, params, signal, onUpdate);
-      const activeVm = await dungeonVm.ensure(ctx);
-      const tool = createEditTool(localCwd, {
-        operations: createDungeonEditOps(activeVm, dungeonVm.mappings),
-      });
-      return tool.execute(id, params, signal, onUpdate);
-    },
-  });
-
-  pi.registerTool({
-    ...localBash,
-    async execute(id, params, signal, onUpdate, ctx) {
-      if (dungeonVm.bypassed) return localBash.execute(id, params, signal, onUpdate);
-      const activeVm = await dungeonVm.ensure(ctx);
-      const tool = createBashTool(localCwd, {
-        operations: createDungeonBashOps(activeVm, dungeonVm.mappings),
-      });
-      return tool.execute(id, params, signal, onUpdate);
-    },
-  });
+  registerDungeonTool(localRead, createReadTool, createDungeonReadOps);
+  registerDungeonTool(localWrite, createWriteTool, createDungeonWriteOps);
+  registerDungeonTool(localEdit, createEditTool, createDungeonEditOps);
+  registerDungeonTool(localBash, createBashTool, createDungeonBashOps);
 
   pi.on("user_bash", async (_event, ctx) => {
     if (dungeonVm.bypassed) return undefined;
