@@ -86,8 +86,8 @@ export class InfoPanel implements Component {
 
   invalidate(): void {}
 
-  render(width: number): string[] {
-    const lines = this.buildLines(width);
+  render(_width: number): string[] {
+    const lines = this.buildLines();
 
     // Clamp scroll
     const maxScroll = Math.max(0, lines.length - 1);
@@ -105,54 +105,45 @@ export class InfoPanel implements Component {
 
   // ─── Private ───────────────────────────────────────────────────────
 
-  private buildLines(width: number): string[] {
+  private buildLines(): string[] {
     const { theme, config } = this;
     const lines: string[] = [];
     const tilde = (p: string) => p.replace(this.home, "~");
 
     // ── Status ──
-    lines.push(this.sectionHeader("Status", width));
+    lines.push(this.sectionHeader("Status"));
     const status = this.bypassed ? theme.fg("warning", "bypassed (host)") : theme.fg("success", "active (sandboxed)");
     lines.push(`  ${status}`);
     lines.push("");
 
     // ── Workspace ──
-    lines.push(this.sectionHeader("Workspace", width));
-    const cwdHash = crypto.createHash("sha256").update(this.localCwd).digest("hex").slice(0, 16);
+    lines.push(this.sectionHeader("Workspace"));
+    const cwdHash = hashPath(this.localCwd);
     lines.push(`  Path: ${theme.fg("text", this.localCwd)}`);
     lines.push(`  Hash: ${theme.fg("muted", cwdHash)}`);
     lines.push("");
 
     // ── Config Sources ──
-    lines.push(this.sectionHeader(`Config Sources (${this.configSources.length})`, width));
-    if (this.configSources.length === 0) {
-      lines.push(`  ${theme.fg("muted", "(none)")}`);
-    } else {
-      for (const src of this.configSources) {
-        lines.push(`  ${tilde(src)}`);
-      }
-    }
-    lines.push("");
+    this.renderSection(
+      lines,
+      `Config Sources (${this.configSources.length})`,
+      this.configSources,
+      (src) => `  ${tilde(src)}`,
+    );
 
     // ── Mounts ──
     const mounts = config.mounts ?? [];
-    lines.push(this.sectionHeader(`Mounts (${mounts.length})`, width));
-    if (mounts.length === 0) {
-      lines.push(`  ${theme.fg("muted", "(none)")}`);
-    } else {
-      for (const entry of mounts) {
-        const match = entry.match(/^(.*?)(?::(ro|rw))?$/);
-        const rawPath = match?.[1] ?? entry;
-        const mode = match?.[2] ?? "ro";
-        const modeLabel = mode === "rw" ? theme.fg("warning", ":rw") : theme.fg("muted", ":ro");
-        lines.push(`  ${tilde(rawPath)} ${modeLabel}`);
-      }
-    }
-    lines.push("");
+    this.renderSection(lines, `Mounts (${mounts.length})`, mounts, (entry) => {
+      const match = entry.match(/^(.*?)(?::(ro|rw))?$/);
+      const rawPath = match?.[1] ?? entry;
+      const mode = match?.[2] ?? "ro";
+      const modeLabel = mode === "rw" ? theme.fg("warning", ":rw") : theme.fg("muted", ":ro");
+      return `  ${tilde(rawPath)} ${modeLabel}`;
+    });
 
     // ── Cache Paths ──
     const cachePaths = config.cachePaths ?? [];
-    lines.push(this.sectionHeader(`Cache Paths (${cachePaths.length})`, width));
+    lines.push(this.sectionHeader(`Cache Paths (${cachePaths.length})`));
     if (this.cacheEntries.length === 0) {
       lines.push(`  ${theme.fg("muted", "(none)")}`);
     } else {
@@ -178,7 +169,7 @@ export class InfoPanel implements Component {
     // ── Hidden Paths ──
     const hiddenPaths = config.hiddenPaths ?? [];
     const totalHidden = hiddenPaths.length + WORKSPACE_ALWAYS_SHADOWED.length + PI_AGENT_ALWAYS_SHADOWED.length;
-    lines.push(this.sectionHeader(`Hidden Paths (${totalHidden})`, width));
+    lines.push(this.sectionHeader(`Hidden Paths (${totalHidden})`));
     for (const p of WORKSPACE_ALWAYS_SHADOWED) {
       lines.push(`  ${p} ${theme.fg("muted", "(built-in, workspace)")}`);
     }
@@ -192,45 +183,22 @@ export class InfoPanel implements Component {
 
     // ── Allowed Hosts ──
     const hosts = config.allowedHosts ?? [];
-    lines.push(this.sectionHeader(`Allowed Hosts (${hosts.length})`, width));
-    if (hosts.length === 0) {
-      lines.push(`  ${theme.fg("muted", "(none — network deny-all)")}`);
-    } else {
-      for (const h of hosts) {
-        lines.push(`  ${h}`);
-      }
-    }
-    lines.push("");
+    this.renderSection(lines, `Allowed Hosts (${hosts.length})`, hosts, (h) => `  ${h}`, "(none — network deny-all)");
 
     // ── Secrets ──
     const secrets = config.secrets ? Object.entries(config.secrets) : [];
-    lines.push(this.sectionHeader(`Secrets (${secrets.length})`, width));
-    if (secrets.length === 0) {
-      lines.push(`  ${theme.fg("muted", "(none)")}`);
-    } else {
-      for (const [name, cfg] of secrets) {
-        const hostsStr = cfg.hosts.join(", ");
-        lines.push(`  ${theme.fg("accent", name)} → ${hostsStr}`);
-        lines.push(`    keychain: ${theme.fg("muted", cfg.keychain)}`);
-      }
-    }
-    lines.push("");
+    this.renderSection(lines, `Secrets (${secrets.length})`, secrets, ([name, cfg]) => [
+      `  ${theme.fg("accent", name)} → ${cfg.hosts.join(", ")}`,
+      `    keychain: ${theme.fg("muted", cfg.keychain)}`,
+    ]);
 
     // ── Environment ──
     const env = config.env ? Object.entries(config.env) : [];
-    lines.push(this.sectionHeader(`Environment (${env.length})`, width));
-    if (env.length === 0) {
-      lines.push(`  ${theme.fg("muted", "(none)")}`);
-    } else {
-      for (const [key, val] of env) {
-        lines.push(`  ${key}=${theme.fg("muted", val)}`);
-      }
-    }
-    lines.push("");
+    this.renderSection(lines, `Environment (${env.length})`, env, ([key, val]) => `  ${key}=${theme.fg("muted", val)}`);
 
     // ── Resources ──
     const res = config.resources;
-    lines.push(this.sectionHeader("Resources", width));
+    lines.push(this.sectionHeader("Resources"));
     if (!res || (!res.memory && !res.cpus)) {
       lines.push(`  ${theme.fg("muted", "(defaults)")}`);
     } else {
@@ -245,8 +213,31 @@ export class InfoPanel implements Component {
     return lines;
   }
 
-  private sectionHeader(title: string, _width: number): string {
+  private sectionHeader(title: string): string {
     return this.theme.bold(this.theme.fg("accent", `━━ ${title} ━━`));
+  }
+
+  private renderSection<T>(
+    lines: string[],
+    title: string,
+    items: T[],
+    render: (item: T) => string | string[],
+    emptyLabel = "(none)",
+  ): void {
+    lines.push(this.sectionHeader(title));
+    if (items.length === 0) {
+      lines.push(`  ${this.theme.fg("muted", emptyLabel)}`);
+    } else {
+      for (const item of items) {
+        const rendered = render(item);
+        if (Array.isArray(rendered)) {
+          lines.push(...rendered);
+        } else {
+          lines.push(rendered);
+        }
+      }
+    }
+    lines.push("");
   }
 
   private buildCacheEntries(): CacheEntry[] {
@@ -261,7 +252,7 @@ export class InfoPanel implements Component {
           workspacePatterns.push(pattern);
           break;
         case "external": {
-          const hash = crypto.createHash("sha256").update(cls.absolutePath).digest("hex").slice(0, 16);
+          const hash = hashPath(cls.absolutePath);
           const backingDir = path.join(this.home, ".cache/pi-dungeon", hash);
           entries.push({ pattern, hash, backingDir, size: null, kind: "external" });
           break;
@@ -273,7 +264,7 @@ export class InfoPanel implements Component {
 
     // All workspace-internal patterns share one backing dir
     if (workspacePatterns.length > 0) {
-      const hash = crypto.createHash("sha256").update(this.localCwd).digest("hex").slice(0, 16);
+      const hash = hashPath(this.localCwd);
       const backingDir = path.join(this.home, ".cache/pi-dungeon/workspace", hash);
       for (const pattern of workspacePatterns) {
         entries.push({ pattern, hash, backingDir, size: null, kind: "workspace" });
@@ -298,6 +289,10 @@ export class InfoPanel implements Component {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
+
+function hashPath(p: string): string {
+  return crypto.createHash("sha256").update(p).digest("hex").slice(0, 16);
+}
 
 function dirSize(dir: string): Promise<string> {
   return new Promise((resolve) => {
