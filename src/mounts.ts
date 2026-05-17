@@ -19,7 +19,7 @@ import {
   type VirtualProvider,
 } from "@earendil-works/gondolin";
 
-import { GUEST_GITHUB_REPOS } from "./paths.ts";
+import { classifyPath, GUEST_GITHUB_REPOS } from "./paths.ts";
 import type { DungeonConfig, PathMapping } from "./types.ts";
 
 /**
@@ -112,60 +112,39 @@ export interface MountsResult {
   pendingMappings: PathMapping[];
 }
 
-/**
- * Build the VFS mount map for the Dungeon VM.
- *
- * @param config   Merged DungeonConfig (global + project).
- * @param localCwd Absolute path to the host workspace directory.
- * @param guestWorkspace Absolute guest path to mount the workspace at.
- * @param home     Host home directory (os.homedir()).
- */
-export function buildMounts(
-  config: DungeonConfig,
-  localCwd: string,
-  guestWorkspace: string,
+// Pre-process cachePaths: split into workspace-internal (ShadowProvider
+// overlay) vs external (separate RW mount).  External entries are collected
+// here and inserted into the mounts map later alongside other projectMounts.
+//
+// All workspace-internal entries (globs and resolved relative paths) share
+// ONE backing dir: ~/.cache/pi-dungeon/workspace/<hash(localCwd)>.
+function collectCacheEntries(
+  cachePaths: string[] | undefined,
   home: string,
-): MountsResult {
-  // Ensure host directories that back read-only mounts exist.
-  fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
-
-  // Build the workspace VFS backend.
-  // Layer 1 (innermost): real host filesystem.
-  let workspaceBackend: VirtualProvider = new RealFSProvider(localCwd);
-
-  // Pre-process cachePaths: split into workspace-internal (ShadowProvider
-  // overlay) vs external (separate RW mount).  External entries are collected
-  // here and inserted into the mounts map later alongside other projectMounts.
-  //
-  // All workspace-internal entries (globs and resolved relative paths) share
-  // ONE backing dir: ~/.cache/pi-dungeon/workspace/<hash(localCwd)>.
+  localCwd: string,
+  workspaceBackend: VirtualProvider,
+): { workspaceBackend: VirtualProvider; absoluteCacheEntries: Array<{ guestPath: string; backingDir: string }> } {
   const absoluteCacheEntries: Array<{ guestPath: string; backingDir: string }> = [];
   const workspacePatterns: string[] = [];
 
-  for (const entry of config.cachePaths ?? []) {
-    if (entry.includes("*")) {
-      // Glob pattern (e.g. `**/node_modules`): always workspace-scoped.
-      workspacePatterns.push(entry);
-    } else {
-      // Resolve to absolute path: expand ~, then resolve relative paths
-      // against localCwd.
-      const expanded = entry.replace(/^~/, home);
-      const absolutePath =
-        (expanded.startsWith("/") ? expanded : path.resolve(localCwd, expanded)).replace(/\/+$/, "") || "/";
-      if (absolutePath === localCwd) {
-        // Cannot cache the entire workspace root — skip.
-        continue;
-      }
-      if (absolutePath.startsWith(`${localCwd}/`)) {
-        // Workspace-internal: collect relative portion as a prefix pattern.
-        workspacePatterns.push(absolutePath.slice(localCwd.length));
-      } else {
-        // External: separate RW mount backed by a per-path cache dir.
-        const hash = crypto.createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
+  for (const entry of cachePaths ?? []) {
+    const cls = classifyPath(entry, home, localCwd);
+    switch (cls.kind) {
+      case "glob":
+        workspacePatterns.push(cls.pattern);
+        break;
+      case "workspace":
+        workspacePatterns.push(cls.relativePath);
+        break;
+      case "external": {
+        const hash = crypto.createHash("sha256").update(cls.absolutePath).digest("hex").slice(0, 16);
         const backingDir = path.join(home, ".cache/pi-dungeon", hash);
         fs.mkdirSync(backingDir, { recursive: true });
-        absoluteCacheEntries.push({ guestPath: absolutePath, backingDir });
+        absoluteCacheEntries.push({ guestPath: cls.absolutePath, backingDir });
+        break;
       }
+      case "skip":
+        break;
     }
   }
 
@@ -182,44 +161,54 @@ export function buildMounts(
     });
   }
 
-  // Layer 3 (outermost): deny layer for security-critical paths that must
-  // never be visible to the guest regardless of user config.
-  //
-  // Resolve hiddenPaths the same way as cachePaths: expand ~, resolve relative
-  // paths against localCwd, then convert workspace-internal absolute paths to
-  // workspace-relative prefix patterns.  Paths outside the workspace are
-  // silently ignored (no-op) because the ShadowProvider only covers the workspace.
+  return { workspaceBackend, absoluteCacheEntries };
+}
+
+// Layer 3 (outermost): deny layer for security-critical paths that must
+// never be visible to the guest regardless of user config.
+//
+// Resolve hiddenPaths the same way as cachePaths: expand ~, resolve relative
+// paths against localCwd, then convert workspace-internal absolute paths to
+// workspace-relative prefix patterns.  Paths outside the workspace are
+// silently ignored (no-op) because the ShadowProvider only covers the workspace.
+function applyHiddenPaths(
+  hiddenPaths: string[] | undefined,
+  home: string,
+  localCwd: string,
+  workspaceBackend: VirtualProvider,
+): VirtualProvider {
   const resolvedHiddenPatterns: string[] = [];
-  for (const entry of config.hiddenPaths ?? []) {
-    if (entry.includes("*")) {
-      // Glob pattern — pass through unchanged.
-      resolvedHiddenPatterns.push(entry);
-    } else {
-      const expanded = entry.replace(/^~/, home);
-      const absolutePath =
-        (expanded.startsWith("/") ? expanded : path.resolve(localCwd, expanded)).replace(/\/+$/, "") || "/";
-      if (absolutePath === localCwd) {
-        // Cannot hide the entire workspace root — skip.
-        continue;
-      }
-      if (absolutePath.startsWith(`${localCwd}/`)) {
-        // Workspace-internal: extract the workspace-relative portion.
-        resolvedHiddenPatterns.push(absolutePath.slice(localCwd.length));
-      }
-      // Otherwise (outside workspace) — skip silently.
+  for (const entry of hiddenPaths ?? []) {
+    const cls = classifyPath(entry, home, localCwd);
+    switch (cls.kind) {
+      case "glob":
+        resolvedHiddenPatterns.push(cls.pattern);
+        break;
+      case "workspace":
+        resolvedHiddenPatterns.push(cls.relativePath);
+        break;
+      // external and skip: silently ignored (no-op for hidden paths outside workspace)
+      default:
+        break;
     }
   }
   const alwaysShadowed = createShadowPathPredicate(WORKSPACE_ALWAYS_SHADOWED);
   const userHidden = createGlobShadowPathPredicate(resolvedHiddenPatterns);
-  const workspaceMount = new ShadowProvider(workspaceBackend, {
+  return new ShadowProvider(workspaceBackend, {
     shouldShadow: resolvedHiddenPatterns.length > 0 ? (ctx) => alwaysShadowed(ctx) || userHidden(ctx) : alwaysShadowed,
   });
+}
 
-  // Build additional mounts and path mappings from user config.
+// Build additional mounts and path mappings from user config.
+function collectProjectMounts(
+  mounts: string[] | undefined,
+  home: string,
+  absoluteCacheEntries: Array<{ guestPath: string; backingDir: string }>,
+): { projectMounts: Record<string, VirtualProvider>; pendingMappings: PathMapping[] } {
   const pendingMappings: PathMapping[] = [];
   const projectMounts: Record<string, VirtualProvider> = {};
-  if (config.mounts) {
-    for (const entry of config.mounts) {
+  if (mounts) {
+    for (const entry of mounts) {
       // Split optional :ro/:rw suffix
       const match = entry.match(/^(.*?)(?::(ro|rw))?$/);
       const rawPath = match?.[1] ?? "";
@@ -239,6 +228,43 @@ export function buildMounts(
     projectMounts[guestPath] = new RealFSProvider(backingDir);
     pendingMappings.push({ hostDir: backingDir, guestDir: guestPath });
   }
+
+  return { projectMounts, pendingMappings };
+}
+
+/**
+ * Build the VFS mount map for the Dungeon VM.
+ *
+ * @param config   Merged DungeonConfig (global + project).
+ * @param localCwd Absolute path to the host workspace directory.
+ * @param guestWorkspace Absolute guest path to mount the workspace at.
+ * @param home     Host home directory (os.homedir()).
+ */
+export function buildMounts(
+  config: DungeonConfig,
+  localCwd: string,
+  guestWorkspace: string,
+  home: string,
+): MountsResult {
+  // Ensure host directories that back read-only mounts exist.
+  fs.mkdirSync("/tmp/pi-github-repos", { recursive: true });
+
+  // Build the workspace VFS backend.
+  // Layer 1 (innermost): real host filesystem.
+  const initialBackend: VirtualProvider = new RealFSProvider(localCwd);
+
+  // Layer 2: cachePaths overlay.
+  const { workspaceBackend, absoluteCacheEntries } = collectCacheEntries(
+    config.cachePaths,
+    home,
+    localCwd,
+    initialBackend,
+  );
+
+  // Layer 3 (outermost): deny layer for security-critical paths.
+  const workspaceMount = applyHiddenPaths(config.hiddenPaths, home, localCwd, workspaceBackend);
+
+  const { projectMounts, pendingMappings } = collectProjectMounts(config.mounts, home, absoluteCacheEntries);
 
   const mounts: Record<string, VirtualProvider> = {
     ...projectMounts,

@@ -13,6 +13,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { matchesKey } from "@earendil-works/pi-tui";
 
 import { PI_AGENT_ALWAYS_SHADOWED, WORKSPACE_ALWAYS_SHADOWED } from "./mounts.ts";
+import { classifyPath } from "./paths.ts";
 import type { DungeonConfig } from "./types.ts";
 
 export interface InfoPanelOptions {
@@ -253,23 +254,20 @@ export class InfoPanel implements Component {
     const workspacePatterns: string[] = [];
 
     for (const pattern of this.config.cachePaths ?? []) {
-      if (pattern.includes("*")) {
-        // Glob — always workspace-scoped
-        workspacePatterns.push(pattern);
-      } else {
-        const expanded = pattern.replace(/^~/, this.home);
-        const absolutePath =
-          (expanded.startsWith("/") ? expanded : path.resolve(this.localCwd, expanded)).replace(/\/+$/, "") || "/";
-        if (absolutePath === this.localCwd) continue;
-        if (absolutePath.startsWith(`${this.localCwd}/`)) {
-          // Workspace-internal
+      const cls = classifyPath(pattern, this.home, this.localCwd);
+      switch (cls.kind) {
+        case "glob":
+        case "workspace":
           workspacePatterns.push(pattern);
-        } else {
-          // External — own backing dir
-          const hash = crypto.createHash("sha256").update(absolutePath).digest("hex").slice(0, 16);
+          break;
+        case "external": {
+          const hash = crypto.createHash("sha256").update(cls.absolutePath).digest("hex").slice(0, 16);
           const backingDir = path.join(this.home, ".cache/pi-dungeon", hash);
           entries.push({ pattern, hash, backingDir, size: null, kind: "external" });
+          break;
         }
+        case "skip":
+          break;
       }
     }
 

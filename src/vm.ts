@@ -216,9 +216,7 @@ export class DungeonVm {
     return this.attached;
   }
 
-  private async _start(ctx?: ExtensionContext): Promise<SandboxExec> {
-    ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
-
+  private _loadAndNotifyConfig(ctx?: ExtensionContext): { config: DungeonConfig } {
     const { config, sources: configSources } = loadConfig(this.localCwd);
     this.configSources = configSources;
     this.loadedConfig = config;
@@ -227,8 +225,11 @@ export class DungeonVm {
       const display = configSources.map((s) => s.replace(home, "~")).join(", ");
       ctx.ui.notify(`Dungeon config: ${display}`, "info");
     }
-    const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
-    const env = {
+    return { config };
+  }
+
+  private _buildEnv(config: DungeonConfig, proxyEnv: Record<string, string>): Record<string, string> {
+    return {
       HOME: this.home,
       XDG_CONFIG_HOME: path.join(this.home, ".config"),
       XDG_DATA_HOME: path.join(this.home, ".local/share"),
@@ -236,6 +237,14 @@ export class DungeonVm {
       ...(config.env ?? {}),
       ...proxyEnv,
     };
+  }
+
+  private async _start(ctx?: ExtensionContext): Promise<SandboxExec> {
+    ctx?.ui.setStatus("dungeon", ctx.ui.theme.fg("accent", "Dungeon: starting VM..."));
+
+    const { config } = this._loadAndNotifyConfig(ctx);
+    const { httpHooks, env: proxyEnv } = resolveHttpHooks(config);
+    const env = this._buildEnv(config, proxyEnv);
     const { mounts, pendingMappings } = buildMounts(config, this.localCwd, this.guestWorkspace, this.home);
 
     const created = await VM.create({
