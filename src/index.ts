@@ -52,9 +52,9 @@ export default function (pi: ExtensionAPI) {
       ...localTool,
       async execute(
         id: string,
-        params: never,
+        params: unknown,
         signal: AbortSignal | undefined,
-        onUpdate: undefined,
+        onUpdate: unknown,
         ctx: ExtensionContext,
       ) {
         if (dungeonVm.bypassed) return localTool.execute(id, params, signal, onUpdate);
