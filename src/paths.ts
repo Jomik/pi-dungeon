@@ -24,8 +24,11 @@ export function resolvePath(entry: string, home: string, localCwd: string): stri
  * Classify a config path entry (cachePath/hiddenPath) relative to the workspace.
  */
 export function classifyPath(entry: string, home: string, localCwd: string): PathClass {
-  if (entry.includes("*")) {
-    return { kind: "glob", pattern: entry };
+  // Expand ~ before classification so glob patterns get a proper absolute prefix
+  const expanded = entry.replace(/^~/, home);
+
+  if (expanded.includes("*")) {
+    return { kind: "glob", pattern: expanded };
   }
   const absolutePath = resolvePath(entry, home, localCwd);
   if (absolutePath === localCwd) {

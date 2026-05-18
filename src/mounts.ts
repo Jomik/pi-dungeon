@@ -98,7 +98,7 @@ export function createGlobShadowPathPredicate(patterns: string[]): ShadowPredica
 
     if (raw.startsWith("**/")) {
       // Double-star prefix: match a segment name at any depth.
-      const segment = raw.slice(3);
+      const segment = raw.slice(3).replace(/\/+$/, "");
       if (segment) matchers.push(matchDoubleStarPrefix(segment));
     } else if (raw.includes("*")) {
       // Wildcard pattern: convert `*` to `[^/]+`, escape rest.
@@ -131,7 +131,7 @@ export interface MountsResult {
 //
 // All workspace-internal entries (globs and resolved relative paths) share
 // ONE backing dir: ~/.cache/pi-dungeon/workspace/<hash(localCwd)>.
-function collectCacheEntries(
+function applyCachePaths(
   cachePaths: string[] | undefined,
   home: string,
   localCwd: string,
@@ -267,12 +267,7 @@ export function buildMounts(
   const initialBackend: VirtualProvider = new RealFSProvider(localCwd);
 
   // Layer 2: cachePaths overlay.
-  const { workspaceBackend, absoluteCacheEntries } = collectCacheEntries(
-    config.cachePaths,
-    home,
-    localCwd,
-    initialBackend,
-  );
+  const { workspaceBackend, absoluteCacheEntries } = applyCachePaths(config.cachePaths, home, localCwd, initialBackend);
 
   // Layer 3 (outermost): deny layer for security-critical paths.
   const workspaceMount = applyHiddenPaths(config.hiddenPaths, home, localCwd, workspaceBackend);
