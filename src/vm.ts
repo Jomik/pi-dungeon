@@ -70,18 +70,14 @@ export function removeSessionMarker(localCwd: string): void {
 /* ------------------------------------------------------------------ */
 /* Shared VM registry                                                  */
 /*                                                                     */
-/* Extensions load once per session, but multiple sessions may share    */
-/* the same Node process.  A module-level Map lets later sessions reuse */
-/* the parent's VM instead of booting a second one.  Ref-counting       */
-/* ensures close() only tears down the VM after the last user releases. */
+/* ------------------------------------------------------------------ */
+/* VM singleton                                                         */
+/*                                                                     */
+/* One VM per process. Imps run in separate processes and attach via    */
+/* the session marker file.                                            */
 /* ------------------------------------------------------------------ */
 
-interface SharedEntry {
-  vm: DungeonVm;
-  refs: number;
-}
-
-const sharedVms = new Map<string, SharedEntry>();
+let activeVm: { localCwd: string; vm: DungeonVm } | null = null;
 
 /**
  * Obtain a DungeonVm for `localCwd`, creating one if none exists yet.
@@ -90,40 +86,34 @@ const sharedVms = new Map<string, SharedEntry>();
  *          setup like the Obsidian bridge); `false` for subsequent ones.
  */
 export function acquireVm(localCwd: string, home: string): { vm: DungeonVm; isOwner: boolean } {
-  // Same-process sharing (existing logic)
-  const existing = sharedVms.get(localCwd);
-  if (existing) {
-    existing.refs++;
-    return { vm: existing.vm, isOwner: false };
+  // Idempotent: return existing VM if already acquired in this process.
+  if (activeVm && activeVm.localCwd === localCwd) {
+    return { vm: activeVm.vm, isOwner: false };
   }
 
   // Cross-process sharing: check for parent's session marker
   const sessionId = readSessionMarker(localCwd);
   if (sessionId) {
     const vm = new DungeonVm(localCwd, home, sessionId);
-    sharedVms.set(localCwd, { vm, refs: 1 });
+    activeVm = { localCwd, vm };
     return { vm, isOwner: false };
   }
 
   // No existing session — create new (owner mode)
   const vm = new DungeonVm(localCwd, home);
-  sharedVms.set(localCwd, { vm, refs: 1 });
+  activeVm = { localCwd, vm };
   return { vm, isOwner: true };
 }
 
 /**
- * Release a reference to the shared VM for `localCwd`.
- * The VM is closed only when the last reference is released.
+ * Release the VM for `localCwd`. Removes the session marker and closes the VM.
  */
 export async function releaseVm(localCwd: string): Promise<void> {
-  const entry = sharedVms.get(localCwd);
-  if (!entry) return;
-  entry.refs--;
-  if (entry.refs <= 0) {
-    sharedVms.delete(localCwd);
-    removeSessionMarker(localCwd);
-    await entry.vm.close();
-  }
+  if (!activeVm || activeVm.localCwd !== localCwd) return;
+  const vm = activeVm.vm;
+  activeVm = null;
+  removeSessionMarker(localCwd);
+  await vm.close();
 }
 
 export class DungeonVm {
@@ -198,7 +188,9 @@ export class DungeonVm {
       }
     }
     if (this.vm) {
-      await this.vm.close();
+      // Time-box VM.close() to avoid hanging the process on shutdown.
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5000));
+      await Promise.race([this.vm.close(), timeout]);
     }
     this.vm = null;
     this.vmStarting = null;

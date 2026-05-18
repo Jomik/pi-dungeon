@@ -20,7 +20,7 @@ import { createBashTool, createEditTool, createReadTool, createWriteTool } from 
 import { InfoPanel } from "./info-panel.ts";
 import { startObsidianBridge } from "./obsidian.ts";
 import { createDungeonBashOps, createDungeonEditOps, createDungeonReadOps, createDungeonWriteOps } from "./tools.ts";
-import { acquireVm, releaseVm } from "./vm.ts";
+import { acquireVm, releaseVm, removeSessionMarker } from "./vm.ts";
 
 export default function (pi: ExtensionAPI) {
   const localCwd = process.cwd();
@@ -41,6 +41,16 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, _ctx) => {
     await releaseVm(localCwd);
   });
+
+  // Safety net: ensure session marker is removed even if session_shutdown
+  // doesn't fire (e.g., process killed by signal). Gondolin's own exit hook
+  // handles killing the QEMU child process; we just need the marker gone so
+  // future sessions don't try to attach to a dead VM.
+  if (isOwner) {
+    process.on("exit", () => {
+      removeSessionMarker(localCwd);
+    });
+  }
 
   // biome-ignore lint/suspicious/noExplicitAny: tool schemas vary; the helper erases param/ops differences
   function registerDungeonTool<T extends (...args: any[]) => any>(
