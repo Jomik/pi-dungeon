@@ -42,7 +42,9 @@
   },
   "postBuild": {
     "commands": [
-      "curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.41.0/jj-v0.41.0-aarch64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin --strip-components=0 ./jj"
+      "curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.41.0/jj-v0.41.0-aarch64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin --strip-components=0 ./jj",
+      "npm install -g corepack",
+      "corepack enable"
     ]
   }
 }
