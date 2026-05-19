@@ -158,7 +158,18 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.registerCommand("dungeon", {
-    description: "Toggle Dungeon sandbox: /dungeon exit — bypass sandbox, /dungeon enter — re-enable sandbox",
+    description: "Dungeon sandbox control: exit | enter | info",
+    getArgumentCompletions: (prefix) => {
+      const items = [
+        { value: "exit", label: "exit", description: "Bypass sandbox, run on host" },
+        { value: "enter", label: "enter", description: "Re-enable sandbox" },
+        { value: "info", label: "info", description: "Show config and mount info" },
+      ];
+      if (!prefix) return items;
+      const lower = prefix.toLowerCase();
+      const filtered = items.filter((i) => i.value.startsWith(lower));
+      return filtered.length > 0 ? filtered : null;
+    },
     handler: async (args, ctx) => {
       const sub = args.trim().toLowerCase();
       const handler = subcommands[sub];
