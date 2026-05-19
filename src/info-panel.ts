@@ -86,7 +86,7 @@ export class InfoPanel implements Component {
 
   invalidate(): void {}
 
-  render(_width: number): string[] {
+  render(width: number): string[] {
     const lines = this.buildLines();
 
     // Clamp scroll
@@ -100,7 +100,37 @@ export class InfoPanel implements Component {
       visible[0] = this.theme.fg("muted", `  ↑ ${this.scrollOffset} more`);
     }
 
-    return visible;
+    // Border
+    const border = this.theme.fg("muted", "│");
+    const topLeft = this.theme.fg("muted", "╭");
+    const topRight = this.theme.fg("muted", "╮");
+    const botLeft = this.theme.fg("muted", "╰");
+    const botRight = this.theme.fg("muted", "╯");
+    const hLine = this.theme.fg("muted", "─".repeat(width - 2));
+
+    const title = " Dungeon Info ";
+    const titleColored = this.theme.fg("accent", title);
+    const titleBar = `${topLeft}${this.theme.fg("muted", "─")}${titleColored}${this.theme.fg("muted", "─".repeat(Math.max(0, width - title.length - 4)))}${topRight}`;
+
+    const bordered = visible.map((line) => {
+      const content = line.slice(0, width - 4);
+      const pad = " ".repeat(Math.max(0, width - 4 - this.visibleLength(content)));
+      return `${border} ${content}${pad} ${border}`;
+    });
+
+    const help = this.theme.fg("muted", "↑/↓ scroll • q/Esc close");
+    const helpPad = " ".repeat(Math.max(0, width - 4 - this.visibleLength(help)));
+    const helpLine = `${border} ${help}${helpPad} ${border}`;
+
+    const bottom = `${botLeft}${hLine}${botRight}`;
+
+    return [titleBar, ...bordered, helpLine, bottom];
+  }
+
+  /** Approximate visible length (strip ANSI) */
+  private visibleLength(str: string): number {
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence matching
+    return str.replace(/\x1b\[[0-9;]*m/g, "").length;
   }
 
   // ─── Private ───────────────────────────────────────────────────────
